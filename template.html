@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>52-Week High/Low Daily Screen — {{ run_date }}</title>
+  <!--
+    Email-safe CSS notes:
+    - No CSS variables (limited Outlook support)
+    - No flexbox/grid (use tables for layout)
+    - Inline-style fallbacks on critical elements
+    - Gmail strips <style> in some modes; inline styles are the safety net
+  -->
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html {
+      margin: 0 !important;
+      padding: 0 !important;
+      background-color: #0D1117;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                   'Helvetica Neue', Arial, sans-serif;
+      color: #E6EDF3;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+    }
+
+    /* ── Wrapper ────────────────────────────────────────────────── */
+    .email-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      background-color: #0D1117;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    .header {
+      background: linear-gradient(135deg, #161B22 0%, #0D1117 100%);
+      border-bottom: 2px solid #21262D;
+      padding: 28px 32px 24px;
+    }
+    .header-logo {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #58A6FF;
+      margin-bottom: 8px;
+    }
+    .header-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #E6EDF3;
+      line-height: 1.3;
+    }
+    .header-meta {
+      margin-top: 6px;
+      font-size: 12px;
+      color: #8B949E;
+    }
+    .header-meta span {
+      margin-right: 16px;
+    }
+
+    /* ── Summary Pills ───────────────────────────────────────────── */
+    .summary-bar {
+      background-color: #161B22;
+      border-bottom: 1px solid #21262D;
+      padding: 14px 32px;
+    }
+    .pill-row {
+      display: inline-block;
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-right: 10px;
+    }
+    .pill-green  { background-color: #1A3828; color: #3FB950; border: 1px solid #2EA043; }
+    .pill-red    { background-color: #3B1219; color: #F85149; border: 1px solid #DA3633; }
+    .pill-yellow { background-color: #2D2208; color: #D29922; border: 1px solid #9E6A03; }
+    .pill-blue   { background-color: #0D2137; color: #58A6FF; border: 1px solid #1F6FEB; }
+
+    /* ── Section ─────────────────────────────────────────────────── */
+    .section {
+      padding: 24px 32px 8px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #8B949E;
+      margin-bottom: 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #21262D;
+    }
+    .section-title .icon { margin-right: 6px; }
+
+    /* ── AI Narrative ────────────────────────────────────────────── */
+    .narrative-box {
+      background-color: #161B22;
+      border: 1px solid #21262D;
+      border-left: 3px solid #58A6FF;
+      border-radius: 6px;
+      padding: 20px 24px;
+      margin-bottom: 8px;
+    }
+    .narrative-box p {
+      font-size: 14px;
+      line-height: 1.75;
+      color: #C9D1D9;
+      margin-bottom: 14px;
+    }
+    .narrative-box p:last-child { margin-bottom: 0; }
+    .narrative-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #58A6FF;
+      margin-bottom: 10px;
+    }
+
+    /* ── Data Table ──────────────────────────────────────────────── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      margin-bottom: 8px;
+    }
+    .data-table thead tr {
+      background-color: #161B22;
+    }
+    .data-table th {
+      padding: 9px 10px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: #8B949E;
+      border-bottom: 1px solid #21262D;
+      white-space: nowrap;
+    }
+    .data-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #1C2128;
+      color: #C9D1D9;
+      vertical-align: middle;
+    }
+    .data-table tbody tr:hover {
+      background-color: #1C2128;
+    }
+    .data-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    /* Ticker cell */
+    .ticker-cell {
+      font-weight: 700;
+      font-size: 13px;
+      color: #E6EDF3;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+
+    /* Number cells */
+    .num { text-align: right; font-family: 'SF Mono', 'Fira Code', monospace; }
+
+    /* Colour coding */
+    .green   { color: #3FB950; }
+    .red     { color: #F85149; }
+    .yellow  { color: #D29922; }
+    .muted   { color: #6E7681; font-style: italic; }
+
+    /* Volume badge */
+    .vol-badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: monospace;
+    }
+    .vol-high   { background: #1A3828; color: #3FB950; }
+    .vol-medium { background: #2D2208; color: #D29922; }
+
+    /* DCF badge */
+    .dcf-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: monospace;
+    }
+    .dcf-up   { background: #1A3828; color: #3FB950; }
+    .dcf-down { background: #3B1219; color: #F85149; }
+    .dcf-flat { background: #161B22; color: #8B949E; }
+
+    /* Signal badge */
+    .signal-badge {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .signal-high { background: #1A3828; color: #3FB950; border: 1px solid #2EA043; }
+    .signal-low  { background: #3B1219; color: #F85149; border: 1px solid #DA3633; }
+
+    /* Sector tag */
+    .sector-tag {
+      font-size: 11px;
+      color: #8B949E;
+    }
+
+    /* ── Why / Reason card ──────────────────────────────────────────*/
+    .why-row td {
+      padding: 0 10px 10px 10px;
+      border-bottom: 1px solid #21262D;
+    }
+    .why-card {
+      background-color: #0D1117;
+      border-left: 2px solid #30363D;
+      border-radius: 0 4px 4px 0;
+      padding: 7px 12px;
+      font-size: 12px;
+      color: #8B949E;
+      line-height: 1.5;
+    }
+    .why-card .why-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: #58A6FF;
+      margin-right: 8px;
+    }
+    .why-card .why-text {
+      color: #C9D1D9;
+    }
+    .why-card .news-pills {
+      margin-top: 5px;
+    }
+    .news-pill {
+      display: inline-block;
+      background: #161B22;
+      border: 1px solid #30363D;
+      border-radius: 3px;
+      font-size: 10px;
+      color: #8B949E;
+      padding: 2px 6px;
+      margin-right: 4px;
+      margin-top: 3px;
+    }
+
+    /* ── Empty state ─────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: #6E7681;
+      font-size: 13px;
+      background-color: #161B22;
+      border-radius: 6px;
+      border: 1px dashed #21262D;
+    }
+    .empty-state .empty-icon { font-size: 28px; margin-bottom: 8px; }
+
+    /* ── Error log ───────────────────────────────────────────────── */
+    .error-box {
+      background-color: #1C1008;
+      border: 1px solid #3B1219;
+      border-radius: 6px;
+      padding: 14px 18px;
+      margin-top: 4px;
+    }
+    .error-row {
+      font-size: 11.5px;
+      font-family: monospace;
+      color: #8B949E;
+      padding: 3px 0;
+      border-bottom: 1px solid #21262D;
+    }
+    .error-row:last-child { border-bottom: none; }
+    .error-ticker { color: #F85149; font-weight: 700; margin-right: 8px; }
+    .error-step   { color: #D29922; margin-right: 8px; }
+
+    /* ── Footer ──────────────────────────────────────────────────── */
+    .footer {
+      background-color: #161B22;
+      border-top: 1px solid #21262D;
+      padding: 16px 32px;
+      margin-top: 12px;
+    }
+    .footer-text {
+      font-size: 10.5px;
+      color: #484F58;
+      line-height: 1.6;
+    }
+    .footer-text strong { color: #6E7681; }
+
+    /* ── Divider ─────────────────────────────────────────────────── */
+    .divider {
+      height: 1px;
+      background-color: #21262D;
+      margin: 0 32px;
+    }
+
+    /* ── Responsive ──────────────────────────────────────────────── */
+    @media only screen and (max-width: 640px) {
+      .header, .section, .summary-bar, .footer { padding-left: 16px; padding-right: 16px; }
+      .header-title { font-size: 18px; }
+      .data-table th, .data-table td { padding: 7px 6px; font-size: 11px; }
+      .hide-mobile { display: none !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#0D1117;">
+
+<div class="email-wrapper">
+
+  <!-- ══════════════════════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="header">
+    <div class="header-logo">&#9642; Quant Desk  &bull;  Daily Screening Report</div>
+    <div class="header-title">52-Week High / Low Breakout Monitor</div>
+    <div class="header-meta">
+      <span>&#128197; {{ run_date }}</span>
+      <span>&#9201; Generated {{ generation_time }}</span>
+      <span style="color:#58A6FF;">Volume Surge &#8805; 1.2&#215; &bull; Proximity Band &#8804; 2.5%</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       SUMMARY BAR
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="summary-bar">
+    <span class="pill pill-green">&#8679; {{ total_highs }} Near 52W High</span>
+    <span class="pill pill-red">&#8681; {{ total_lows }} Near 52W Low</span>
+    {% if has_errors %}
+    <span class="pill pill-yellow">&#9888; {{ errors|length }} Ticker Errors</span>
+    {% endif %}
+    <span class="pill pill-blue">&#9670; 2-Stage DCF Active</span>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       AI NARRATIVE
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="icon">&#129302;</span>CIO Executive Summary  &mdash; AI Generated</div>
+    <div class="narrative-box">
+      <div class="narrative-label">&#9670; Chief Investment Officer Briefing</div>
+      {% set paragraphs = narrative.split('\n\n') %}
+      {% for para in paragraphs %}
+        {% if para.strip() %}
+          <p>{{ para.strip() | replace('**', '') }}</p>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       BREAKOUT HIGHS TABLE
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="color:#3FB950;">&#8679;</span>
+      Breakouts to 52-Week Highs
+      <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#3FB950;">
+        &mdash; {{ total_highs }} signal{{ 's' if total_highs != 1 }}
+      </span>
+    </div>
+
+    {% if highs %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th class="hide-mobile">Company / Sector</th>
+          <th class="num">Price</th>
+          <th class="num">52W High</th>
+          <th class="num">% From High</th>
+          <th class="num">Vol Surge</th>
+          <th class="num">P/E</th>
+          <th class="num">DCF Value</th>
+          <th class="num">Upside</th>
+          <th class="num hide-mobile">1M Ret</th>
+          <th class="num hide-mobile">3M Ret</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in highs %}
+        <tr>
+          <!-- Ticker -->
+          <td>
+            <span class="ticker-cell">{{ row.ticker }}</span><br>
+            <span class="signal-badge signal-high">BREAKOUT</span>
+          </td>
+
+          <!-- Company / Sector -->
+          <td class="hide-mobile">
+            <span style="font-size:12px;color:#C9D1D9;">
+              {{ row.company_name if row.company_name else row.ticker }}
+            </span><br>
+            <span class="sector-tag">{{ row.sector if row.sector else '—' }}</span>
+          </td>
+
+          <!-- Current Price -->
+          <td class="num">
+            <strong>${{ row.current_price if row.current_price is not none else '—' }}</strong>
+          </td>
+
+          <!-- 52W High -->
+          <td class="num green">
+            ${{ row.week_52_high if row.week_52_high is not none else '—' }}
+          </td>
+
+          <!-- % From High -->
+          <td class="num">
+            {% if row.pct_from_high is not none %}
+              <span class="{{ 'green' if row.pct_from_high <= 1.0 else 'yellow' }}">
+                {{ row.pct_from_high }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Volume Surge -->
+          <td class="num">
+            {% if row.volume_surge is not none %}
+              <span class="vol-badge {{ 'vol-high' if row.volume_surge >= 2.0 else 'vol-medium' }}">
+                {{ row.volume_surge }}&#215;
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- P/E Ratio -->
+          <td class="num">
+            {% if row.pe_ratio is not none %}
+              <span class="{{ 'yellow' if row.pe_ratio > 35 else 'muted' if row.pe_ratio <= 0 else '' }}">
+                {{ row.pe_ratio }}x
+              </span>
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- DCF Intrinsic Value -->
+          <td class="num">
+            {% if row.intrinsic_value is not none %}
+              ${{ row.intrinsic_value }}
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- Upside/Downside % -->
+          <td class="num">
+            {% if row.upside_downside_pct is not none %}
+              <span class="dcf-badge {{ 'dcf-up' if row.upside_downside_pct > 5 else 'dcf-down' if row.upside_downside_pct < -5 else 'dcf-flat' }}">
+                {{ '+' if row.upside_downside_pct > 0 else '' }}{{ row.upside_downside_pct }}%
+              </span>
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- 1M Return -->
+          <td class="num hide-mobile">
+            {% if row.ret_1m is not none %}
+              <span class="{{ 'green' if row.ret_1m > 0 else 'red' }}">
+                {{ '+' if row.ret_1m > 0 else '' }}{{ row.ret_1m }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- 3M Return -->
+          <td class="num hide-mobile">
+            {% if row.ret_3m is not none %}
+              <span class="{{ 'green' if row.ret_3m > 0 else 'red' }}">
+                {{ '+' if row.ret_3m > 0 else '' }}{{ row.ret_3m }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+
+        <!-- ── Why / Reason row ─────────────────────────────────────── -->
+        {% if row.why_text or row.news_headlines %}
+        <tr class="why-row">
+          <td colspan="11">
+            <div class="why-card">
+              {% if row.why_text %}
+                <span class="why-label">&#9670; Why</span>
+                <span class="why-text">{{ row.why_text }}</span>
+              {% endif %}
+              {% if row.news_headlines %}
+              <div class="news-pills">
+                {% for headline in row.news_headlines[:3] %}
+                  <span class="news-pill">&#128240; {{ headline[:90] }}{% if headline|length > 90 %}…{% endif %}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">&#128203;</div>
+      <div>No stocks meeting 52-week high breakout criteria today.</div>
+      <div style="margin-top:4px;font-size:11px;">Requires: price within 2.5% of 252-day high AND volume surge &ge; 1.2&times;</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       BREAKDOWN LOWS TABLE
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title">
+      <span class="icon" style="color:#F85149;">&#8681;</span>
+      Breakdowns to 52-Week Lows
+      <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:#F85149;">
+        &mdash; {{ total_lows }} signal{{ 's' if total_lows != 1 }}
+      </span>
+    </div>
+
+    {% if lows %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Ticker</th>
+          <th class="hide-mobile">Company / Sector</th>
+          <th class="num">Price</th>
+          <th class="num">52W Low</th>
+          <th class="num">% From Low</th>
+          <th class="num">Vol Surge</th>
+          <th class="num">P/E</th>
+          <th class="num">DCF Value</th>
+          <th class="num">Upside</th>
+          <th class="num hide-mobile">1M Ret</th>
+          <th class="num hide-mobile">3M Ret</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in lows %}
+        <tr>
+          <!-- Ticker -->
+          <td>
+            <span class="ticker-cell">{{ row.ticker }}</span><br>
+            <span class="signal-badge signal-low">BREAKDOWN</span>
+          </td>
+
+          <!-- Company / Sector -->
+          <td class="hide-mobile">
+            <span style="font-size:12px;color:#C9D1D9;">
+              {{ row.company_name if row.company_name else row.ticker }}
+            </span><br>
+            <span class="sector-tag">{{ row.sector if row.sector else '—' }}</span>
+          </td>
+
+          <!-- Current Price -->
+          <td class="num">
+            <strong>${{ row.current_price if row.current_price is not none else '—' }}</strong>
+          </td>
+
+          <!-- 52W Low -->
+          <td class="num red">
+            ${{ row.week_52_low if row.week_52_low is not none else '—' }}
+          </td>
+
+          <!-- % From Low -->
+          <td class="num">
+            {% if row.pct_from_low is not none %}
+              <span class="{{ 'red' if row.pct_from_low <= 1.0 else 'yellow' }}">
+                {{ row.pct_from_low }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- Volume Surge -->
+          <td class="num">
+            {% if row.volume_surge is not none %}
+              <span class="vol-badge {{ 'vol-high' if row.volume_surge >= 2.0 else 'vol-medium' }}">
+                {{ row.volume_surge }}&#215;
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- P/E Ratio -->
+          <td class="num">
+            {% if row.pe_ratio is not none %}
+              {{ row.pe_ratio }}x
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- DCF Intrinsic Value -->
+          <td class="num">
+            {% if row.intrinsic_value is not none %}
+              ${{ row.intrinsic_value }}
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- Upside/Downside % — for lows, high upside = deep value -->
+          <td class="num">
+            {% if row.upside_downside_pct is not none %}
+              <span class="dcf-badge {{ 'dcf-up' if row.upside_downside_pct > 15 else 'dcf-down' if row.upside_downside_pct < 0 else 'dcf-flat' }}">
+                {{ '+' if row.upside_downside_pct > 0 else '' }}{{ row.upside_downside_pct }}%
+              </span>
+            {% else %}<span class="muted">N/A</span>{% endif %}
+          </td>
+
+          <!-- 1M Return -->
+          <td class="num hide-mobile">
+            {% if row.ret_1m is not none %}
+              <span class="{{ 'green' if row.ret_1m > 0 else 'red' }}">
+                {{ '+' if row.ret_1m > 0 else '' }}{{ row.ret_1m }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+
+          <!-- 3M Return -->
+          <td class="num hide-mobile">
+            {% if row.ret_3m is not none %}
+              <span class="{{ 'green' if row.ret_3m > 0 else 'red' }}">
+                {{ '+' if row.ret_3m > 0 else '' }}{{ row.ret_3m }}%
+              </span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+
+        <!-- ── Why / Reason row ─────────────────────────────────────── -->
+        {% if row.why_text or row.news_headlines %}
+        <tr class="why-row">
+          <td colspan="11">
+            <div class="why-card">
+              {% if row.why_text %}
+                <span class="why-label">&#9670; Why</span>
+                <span class="why-text">{{ row.why_text }}</span>
+              {% endif %}
+              {% if row.news_headlines %}
+              <div class="news-pills">
+                {% for headline in row.news_headlines[:3] %}
+                  <span class="news-pill">&#128240; {{ headline[:90] }}{% if headline|length > 90 %}…{% endif %}</span>
+                {% endfor %}
+              </div>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">&#128203;</div>
+      <div>No stocks meeting 52-week low breakdown criteria today.</div>
+      <div style="margin-top:4px;font-size:11px;">Requires: price within 2.5% of 252-day low AND volume surge &ge; 1.2&times;</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       METHODOLOGY CARD
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="icon">&#9874;</span>Screening Methodology</div>
+    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td width="33%" valign="top" style="padding:0 8px 16px 0;">
+          <div style="background:#161B22;border:1px solid #21262D;border-radius:6px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#58A6FF;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">
+              &#128200; Technical Screen
+            </div>
+            <div style="font-size:12px;color:#8B949E;line-height:1.6;">
+              252-day rolling window for 52W high &amp; low.
+              Stocks flagged if current price is within <strong style="color:#C9D1D9;">2.5%</strong>
+              of either extreme.
+            </div>
+          </div>
+        </td>
+        <td width="33%" valign="top" style="padding:0 8px 16px;">
+          <div style="background:#161B22;border:1px solid #21262D;border-radius:6px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#3FB950;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">
+              &#128293; Volume Confirmation
+            </div>
+            <div style="font-size:12px;color:#8B949E;line-height:1.6;">
+              Volume Surge = Current Vol / 20-day Avg Vol.
+              Only signals with surge <strong style="color:#C9D1D9;">&ge; 1.2&times;</strong> are retained.
+            </div>
+          </div>
+        </td>
+        <td width="33%" valign="top" style="padding:0 0 16px 8px;">
+          <div style="background:#161B22;border:1px solid #21262D;border-radius:6px;padding:14px;">
+            <div style="font-size:11px;font-weight:700;color:#D29922;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">
+              &#128181; 2-Stage DCF
+            </div>
+            <div style="font-size:12px;color:#8B949E;line-height:1.6;">
+              Stage 1: 5yr explicit FCF growth (8–15% by cap tier).
+              Stage 2: Transition + terminal at <strong style="color:#C9D1D9;">3%</strong>, discounted at 10% WACC.
+            </div>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       ERROR LOG (shown only if errors exist)
+  ══════════════════════════════════════════════════════════════ -->
+  {% if has_errors %}
+  <div class="section">
+    <div class="section-title" style="color:#D29922;">
+      <span class="icon">&#9888;</span>Ticker Errors  &mdash; {{ errors|length }} logged
+    </div>
+    <div class="error-box">
+      {% for err in errors %}
+      <div class="error-row">
+        <span class="error-ticker">{{ err.ticker }}</span>
+        <span class="error-step">[{{ err.step }}]</span>
+        <span style="color:#6E7681;">{{ err.error[:120] }}{% if err.error|length > 120 %}…{% endif %}</span>
+        <span style="float:right;color:#484F58;font-size:10px;">{{ err.time }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ══════════════════════════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="footer">
+    <div class="footer-text">
+      <strong>Disclaimer:</strong> This report is generated by an automated quantitative screening
+      system for <strong>informational purposes only</strong>. It does not constitute investment
+      advice, a solicitation, or a recommendation to buy or sell any security. All data is sourced
+      from public market data providers and may contain errors or delays. DCF valuations use
+      simplified assumptions and should not be relied upon as sole investment criteria. Past
+      performance is not indicative of future results. Always conduct independent due diligence
+      before making investment decisions.
+    </div>
+    <div class="footer-text" style="margin-top:8px;color:#363B42;">
+      52W High/Low Screener v1.0 &bull; Data: yfinance &bull; AI: OpenAI / Google Gemini
+      &bull; {{ run_date }}
+    </div>
+  </div>
+
+</div><!-- /email-wrapper -->
+</body>
+</html>
