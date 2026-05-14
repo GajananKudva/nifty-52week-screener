@@ -66,11 +66,18 @@ def _secret(key: str, default: str = "") -> str:
     return val or default
 
 
-# ── OpenAI client (optional — graceful fallback) ───────────────────────────────
+# ── AI client — supports OpenAI and Groq (same SDK, different base_url) ──────
+# Set LLM_PROVIDER=groq in .env to use Groq's free tier (llama-3.3-70b-versatile)
+# Set LLM_PROVIDER=openai (or leave blank) for OpenAI
+_LLM_PROVIDER = _secret("LLM_PROVIDER", "openai").lower()
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
 try:
     from openai import OpenAI as _OpenAI
     _OPENAI_KEY   = _secret("OPENAI_API_KEY")
-    _OPENAI_MODEL = _secret("OPENAI_MODEL", "gpt-4o-mini")
+    _OPENAI_MODEL = _secret("OPENAI_MODEL",
+                            "llama-3.3-70b-versatile" if _LLM_PROVIDER == "groq"
+                            else "gpt-4o-mini")
     _AI_OK        = bool(_OPENAI_KEY)
 except ImportError:
     _AI_OK        = False
@@ -1220,15 +1227,26 @@ Return ONLY a valid JSON object with exactly these 8 keys (no markdown, no code 
 
     last_err = ""
     try:
-        client   = _OpenAI(api_key=_OPENAI_KEY)
+        client   = _OpenAI(
+            api_key=_OPENAI_KEY,
+            base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
+        )
+        # Groq's llama models support json_object mode; OpenAI always does
+        kwargs: dict = {"temperature": 0.3}
+        if _LLM_PROVIDER != "groq" or "llama" in _OPENAI_MODEL:
+            kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(
             model=_OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.3,
+            **kwargs,
         )
-        raw    = response.choices[0].message.content.strip()
-        result = json.loads(raw)
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if model returns them
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw.strip())
         # ✅ Only cache on success — errors are never stored
         st.session_state[cache_key] = result
         return result
