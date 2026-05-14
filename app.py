@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import re
+import threading
 import time
 import urllib.parse
 from datetime import datetime
@@ -127,6 +129,30 @@ except ImportError:
         return ""
     def get_dashboard_snapshot() -> dict:         # type: ignore[misc]
         return {}
+
+# ── Auto-refresh component ────────────────────────────────────────────────────
+try:
+    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+    _AUTOREFRESH_OK = True
+except ImportError:
+    _AUTOREFRESH_OK = False
+    def _st_autorefresh(*args, **kwargs) -> int:   # type: ignore[misc]
+        return 0
+
+# ── SQLite database layer ──────────────────────────────────────────────────────
+try:
+    from database import (
+        init_db, save_screen_results,
+        load_latest_results, get_last_run_info, db_exists,
+    )
+    _DB_OK = True
+except ImportError:
+    _DB_OK = False
+    def init_db() -> None: pass                                    # type: ignore
+    def save_screen_results(*a, **kw) -> int: return 0             # type: ignore
+    def load_latest_results(u): return pd.DataFrame(), pd.DataFrame(), None  # type: ignore
+    def get_last_run_info(u): return None                          # type: ignore
+    def db_exists() -> bool: return False                          # type: ignore
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -747,7 +773,131 @@ def _fetch_ohlcv(ticker: str, period: str = "1y") -> Optional[pd.DataFrame]:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 6.  SCREENER  (session-state cached)
+# 6.  BACKGROUND SCREENER — runs every 120 s, writes results to SQLite
+# ══════════════════════════════════════════════════════════════════════════════
+
+_bg_logger = logging.getLogger("bg_screener")
+
+class _BackgroundScreener:
+    """
+    Perpetual background worker that keeps the SQLite DB fresh.
+
+    Lifecycle
+    ---------
+    - Instantiated once per server process via @st.cache_resource.
+    - Immediately runs a first screen on startup, then repeats every
+      INTERVAL seconds.
+    - Nifty 500 data is fetched in one NSE API call; Nifty 50 results
+      are derived from that same batch — no extra NSE call required.
+    """
+
+    INTERVAL = 120   # seconds between runs
+
+    def __init__(self) -> None:
+        self._lock    = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+        self.last_run_at: Optional[str] = None
+        self.last_error:  Optional[str] = None
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._running = True
+        self._thread  = threading.Thread(target=self._loop, daemon=True, name="bg_screener")
+        self._thread.start()
+        _bg_logger.info("Background screener thread started.")
+
+    def status(self) -> str:
+        if not self._thread:
+            return "not started"
+        if self._thread.is_alive():
+            return "running"
+        return "stopped"
+
+    # ── internal ──────────────────────────────────────────────────────────────
+
+    def _loop(self) -> None:
+        self._run_once()           # immediate first run
+        while self._running:
+            time.sleep(self.INTERVAL)
+            self._run_once()
+
+    def _run_once(self) -> None:
+        if not self._lock.acquire(blocking=False):
+            _bg_logger.info("Previous run still in progress — skipping this cycle.")
+            return
+        try:
+            self._do_screen()
+        except Exception as exc:
+            self.last_error = str(exc)
+            _bg_logger.error(f"Background run failed: {exc}")
+        finally:
+            self._lock.release()
+
+    def _do_screen(self) -> None:
+        if not _ENGINE_OK or not _DB_OK or not _NSE_BSE_OK:
+            _bg_logger.warning("Engine / DB / NSE_BSE not available — skipping run.")
+            return
+
+        _bg_logger.info("Starting background screen cycle…")
+        init_db()
+
+        # ── 1 NSE call for all 500 stocks ─────────────────────────────────────
+        nse_stocks = get_nse_index_live("NIFTY 500")
+        if not nse_stocks:
+            _bg_logger.warning("NSE live feed returned empty data — aborting run.")
+            return
+
+        _bg_logger.info(f"NSE live feed: {len(nse_stocks)} stocks fetched.")
+
+        # Default screening config (wide threshold to capture more candidates)
+        _cfg = ScreenerConfig(
+            tickers               = [],   # unused in screen_from_nse_live
+            breakout_threshold    = 0.025,
+            volume_surge_threshold= 1.2,
+            volume_window         = 20,
+            rate_limit_sleep      = 0.20,
+            rate_limit_batch_size = 50,
+        )
+
+        # ── Screen full NIFTY 500 ──────────────────────────────────────────────
+        eng500 = DataEngine(_cfg)
+        raw500 = eng500.screen_from_nse_live(nse_stocks)
+        highs500 = pd.DataFrame(eng500.format_for_display(raw500["highs"]))
+        lows500  = pd.DataFrame(eng500.format_for_display(raw500["lows"]))
+        save_screen_results("NIFTY 500", highs500, lows500)
+        _bg_logger.info(f"NIFTY 500 saved: {len(highs500)} highs, {len(lows500)} lows.")
+
+        # ── Derive NIFTY 50 subset from the same NSE batch ────────────────────
+        nifty50_syms = {t.replace(".NS", "").upper() for t in _NIFTY_50}
+        nse_50 = [s for s in nse_stocks if s.get("symbol", "").upper() in nifty50_syms]
+
+        if nse_50:
+            eng50  = DataEngine(_cfg)
+            raw50  = eng50.screen_from_nse_live(nse_50)
+            highs50 = pd.DataFrame(eng50.format_for_display(raw50["highs"]))
+            lows50  = pd.DataFrame(eng50.format_for_display(raw50["lows"]))
+            save_screen_results("NIFTY 50", highs50, lows50)
+            _bg_logger.info(f"NIFTY 50 saved: {len(highs50)} highs, {len(lows50)} lows.")
+
+        self.last_run_at = datetime.now().isoformat(timespec="seconds")
+        self.last_error  = None
+
+
+@st.cache_resource
+def _get_background_screener() -> _BackgroundScreener:
+    """
+    Returns the singleton BackgroundScreener, starting it if necessary.
+    @st.cache_resource ensures this runs once per server process.
+    """
+    screener = _BackgroundScreener()
+    screener.start()
+    return screener
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 6b. LEGACY ON-DEMAND SCREENER  (Custom universe + fallback)
 # ══════════════════════════════════════════════════════════════════════════════
 def _run_screen(tickers: list[str], p: dict) -> dict:
     """
@@ -1943,134 +2093,4 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     # ── Full Google News feed ─────────────────────────────────────────────────
     st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
                 unsafe_allow_html=True)
-    _render_news_feed(name, ticker, accent)
-
-    # ── Download PDF report ───────────────────────────────────────────────────
-    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-    st.markdown("<hr style='border-color:#21262D;margin:0 0 12px;'>",
-                unsafe_allow_html=True)
-
-    with st.spinner("Building PDF report…"):
-        articles   = _fetch_google_news(name, ticker)   # already cached
-        pdf_bytes  = _build_pdf_report(
-            ticker   = ticker,
-            company  = name,
-            sector   = row.get("sector", ""),
-            signal   = sig,
-            price    = price or 0,
-            high52   = high52 or 0,
-            low52    = low52 or 0,
-            pfh      = pfh,
-            pfl      = pfl,
-            vsurge   = vsurge or 0,
-            pe       = pe or 0,
-            upside   = upside or 0,
-            analysis = analysis,
-            articles = articles,
-        )
-
-    fname = (f"{ticker.replace('.NS','')}_research_"
-             f"{datetime.now().strftime('%Y%m%d')}.pdf")
-    st.download_button(
-        label     = "⬇  Download Full Research Report (PDF)",
-        data      = pdf_bytes,
-        file_name = fname,
-        mime      = "application/pdf",
-        use_container_width = True,
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 9.  SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
-def _render_sidebar() -> dict:
-    params: dict = {}
-
-    with st.sidebar:
-        st.markdown(
-            '<div style="font-size:15px;font-weight:700;color:#E6EDF3;'
-            'padding:12px 0 4px;letter-spacing:-0.3px;">&#9881; Screener Controls</div>',
-            unsafe_allow_html=True,
-        )
-
-        # ── Universe ──────────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin:12px 0 6px;">Universe</div>',
-            unsafe_allow_html=True,
-        )
-        universe = st.radio(
-            "Universe",
-            options=["Nifty 500 (live)", "Nifty 50 only", "Custom"],
-            index=1,
-            label_visibility="collapsed",
-        )
-        custom_txt = ""
-        if universe == "Custom":
-            custom_txt = st.text_area(
-                "Tickers (one per line, .NS suffix required)",
-                placeholder="RELIANCE.NS\nTCS.NS\nHDFCBANK.NS",
-                height=90,
-            )
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── Technical params ──────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">'
-            'Technical Parameters</div>',
-            unsafe_allow_html=True,
-        )
-        threshold = st.slider("52W Proximity Band (%)", 0.5, 10.0, 2.5, 0.5,
-                               help="Flag stocks within this % of their 52W extreme") / 100
-        vol_surge = st.slider("Min Volume Surge (×)",    1.0,  5.0, 1.2, 0.1,
-                               help="Current volume ÷ 20-day average volume")
-        window    = st.slider("Lookback Window (days)", 100,  365, 252, 10)
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── DCF params ────────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">'
-            'DCF Model</div>',
-            unsafe_allow_html=True,
-        )
-        wacc        = st.slider("WACC / Discount Rate (%)", 6.0, 18.0, 10.0, 0.5) / 100
-        term_growth = st.slider("Terminal Growth Rate (%)", 1.0,  6.0,  3.0, 0.5) / 100
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── Run button ────────────────────────────────────────────────────────
-        run = st.button("▶  Run Screen", use_container_width=True, type="primary")
-
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-        # ── Downloads (only when data exists) ────────────────────────────────
-        if "screen_results" in st.session_state:
-            res   = st.session_state["screen_results"]
-            highs = res.get("highs", pd.DataFrame())
-            lows  = res.get("lows",  pd.DataFrame())
-
-            if not highs.empty or not lows.empty:
-                combined  = pd.concat([highs, lows], ignore_index=True)
-                # Drop list-type columns that break CSV export
-                drop_cols = [c for c in ["news_headlines"] if c in combined.columns]
-                combined  = combined.drop(columns=drop_cols, errors="ignore")
-
-                st.download_button(
-                    label="⬇  Download CSV",
-                    data=combined.to_csv(index=False).encode("utf-8"),
-                    file_name=f"nifty500_screen_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-                st.caption("To save as PDF: open the CSV in Excel, or use your browser's Print → Save as PDF on the report page.")
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── Auto-refresh toggle ───────────────────────────────────────────────
-        auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
-
-        # ── Run stats ────────────────────────────────────────────────
+    _render_news_f

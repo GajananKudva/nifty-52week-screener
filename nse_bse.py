@@ -463,4 +463,3 @@ def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
     return result
 
 
-# ───────────�

@@ -17,7 +17,6 @@ streamlit>=1.35.0
 plotly>=5.20.0
 feedparser>=6.0.0          # Google News RSS parsing
 reportlab>=4.2.0           # PDF report generation
+streamlit-autorefresh>=1.0.1  # Auto-refresh UI every 60s for live data
 
-# ── HTTP resilience (used internally by yfinance / openai) ─────────────────
-requests>=2.32.0
-urllib3>=2.2.0
+# ── HTTP resilience (used internally by yfinance / openai) ────
