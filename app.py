@@ -1352,9 +1352,10 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking 
             base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
         )
         kwargs: dict = {"temperature": 0.2}
-        # DeepSeek R1 on Groq does NOT support response_format JSON mode —
-        # only enable it for OpenAI and non-R1 Groq models
-        if "deepseek" not in _OPENAI_MODEL.lower():
+        # Reasoning/thinking models (DeepSeek R1, QwQ) do NOT support
+        # response_format JSON mode — only enable it for standard models
+        _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
+        if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
             kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(
             model=_OPENAI_MODEL,
@@ -2234,6 +2235,4 @@ def main():
         st.rerun()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    main()
+# ── Entry point ─────────────────────────────────────────────────�
