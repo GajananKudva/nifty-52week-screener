@@ -1283,66 +1283,79 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     sector_lens = _get_sector_lens(sector)
 
-    prompt = f"""You are a senior equity research analyst at JPMorgan India with 15 years of experience.
+    _action_word = "high" if is_hi else "low"
+    _risk_label  = "rally" if is_hi else "recovery"
 
-A stock has hit its {level}. Your job is to write a precise, evidence-backed research note
-explaining specifically WHY this happened — not a generic company overview.
+    prompt = f"""Act as a senior equity analyst.
+
+{company} ({ticker}) | Sector: {sector} | has hit a 52-week {_action_word}.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STOCK: {company} ({ticker}) | Sector: {sector}
-EVENT: 52-Week {extreme} at ₹{price:,.2f}
-  • {abs(pct_from_high):.1f}% from 52W High (₹{high52:,.2f})
-  • {abs(pct_from_low):.1f}% from 52W Low  (₹{low52:,.2f})
-  • Volume Surge: {vsurge:.1f}x 20-day average
-  • P/E: {pe if pe else "N/A"}x  |  DCF Upside: {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
-  • Recent Headlines: {news_headlines}
+MARKET DATA
+  Current Price : ₹{price:,.2f}
+  52W High      : ₹{high52:,.2f}  ({abs(pct_from_high):.1f}% away)
+  52W Low       : ₹{low52:,.2f}   ({abs(pct_from_low):.1f}% away)
+  Volume Surge  : {vsurge:.1f}x 20-day average
+  P/E           : {pe if pe else "N/A"}x
+  DCF Upside    : {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+  Recent Headlines: {news_headlines}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SECTOR-SPECIFIC LENS FOR {sector.upper()}:
+SECTOR LENS — {sector.upper()}:
 {sector_lens}
 
-ALL AVAILABLE DATA:
+ALL AVAILABLE DATA (fundamentals, macro, delivery/F&O, FII/DII flows):
 {all_context}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ANALYTICAL TASK — answer the question: "Why is {company} at a {level}?"
+TASK: Identify and explain the specific catalysts driving this {_action_word}.
+Structure your response across exactly these 7 sections:
 
-Focus your analysis on:
-1. PRIMARY CATALYST: The single most specific, evidence-backed reason. Was it an earnings
-   beat/miss? A bulk deal by a major institution? FII flow change? A policy announcement?
-   Short covering or genuine accumulation (use delivery % and F&O buildup data)?
+1. RECENT PRICE ACTION — % move over 1M, 3M, 6M, 1Y, and when the breakout/breakdown began.
+   Describe the shape of the move (gap-up, steady grind, spike-and-hold, etc.).
 
-2. INSTITUTIONAL FOOTPRINT: Use delivery %, F&O buildup, bulk/block deals, FII/DII flows,
-   and promoter shareholding to answer WHO is driving this move and whether it is
-   conviction buying/selling or speculative activity.
+2. FUNDAMENTAL CATALYSTS — recent earnings beats/misses, guidance upgrades/cuts, margin
+   expansion/contraction, new orders/contracts, capex announcements, or business model changes.
+   Cite specific numbers (EPS, revenue %, margin bps). Use FMP data above where available.
 
-3. FUNDAMENTAL JUSTIFICATION: Do earnings, margins, and growth actually justify this price?
-   Cite specific numbers from the FMP data. Is this a valuation re-rating or business
-   performance improvement?
+3. SECTORAL / MACRO TAILWINDS — industry cycle turn, policy changes, government incentives
+   (PLI, tariffs, regulation), commodity price moves, or peer re-rating. How is the sector
+   environment helping or hurting this move?
 
-4. NARRATIVE SHIFT: What changed in the market's perception of this company?
+4. CORPORATE ACTIONS & EVENTS — management changes, M&A, demergers, fundraises (QIP/rights),
+   buybacks, promoter buying/selling, block deals, or index inclusion/exclusion.
+   Cite dates and amounts where available.
 
-5. RISKS: What specifically could invalidate or reverse this move?
+5. NARRATIVE SHIFT — what is the new story the market is pricing in vs. 6–12 months ago?
+   Has the company moved from one classification (commodity/cyclical) to another
+   (structural/growth/quality)? What has changed in institutional perception?
 
-6. VERDICT: Is this move JUSTIFIED (fundamental re-rating) or EXCESSIVE (flow-driven)?
-   State your conviction level clearly.
+6. TECHNICAL & FLOW FACTORS — FII/DII net buying/selling (cite Rs. Cr figures), mutual fund
+   accumulation, delivery % vs. average, F&O buildup (long/short), breakout from long
+   consolidation, or short covering. Distinguish conviction buying from speculative flow.
 
-Write like a senior analyst — specific, direct, opinionated, evidence-cited.
-If data is insufficient for a point, say so briefly rather than speculating.
-Label any claim not in the data as [SPECULATIVE].
+7. RISKS TO THE {_risk_label.upper()} — what could break this story?
+   Top 2-3 specific, sector-relevant risks: valuation stretch, execution risk, regulatory risk,
+   dependency on a single driver, or macro reversal. Be concrete — not generic.
+
+RULES:
+- Use only verifiable data from the provided context, earnings calls, exchange filings, and news.
+- If a catalyst is speculative or unconfirmed, label it clearly as [SPECULATIVE].
+- Be specific, direct, and opinionated — write like a senior analyst, not a textbook.
+- End with a one-line verdict: "JUSTIFIED" or "EXCESSIVE", with conviction level (High/Medium/Low).
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking text.
 
 {{
-  "primary_catalyst": "2-3 sentences: THE specific reason for this {level}. Cite exact data — earnings numbers, deal names, flow figures, policy events.",
-  "fundamental_catalysts": "Are fundamentals justifying this move? Quote specific EPS beats/misses, margin %, revenue growth rates from FMP data. Is the business better or worse than 6 months ago?",
-  "institutional_footprint": "WHO is driving this? Cite delivery %, F&O buildup type, bulk/block deal names, FII/DII net flows, promoter stake change. Distinguish conviction from speculation.",
-  "sectoral_macro": "Sector-specific context using the lens above — policy, peers, commodity, regulatory backdrop directly relevant to this move.",
-  "corporate_actions": "Specific announcements — dividends, buybacks, order wins, M&A, QIP, management change — that are direct triggers. Cite dates and amounts.",
-  "narrative_shift": "What do institutions now believe about this company that they didn't 6-12 months ago? What story changed?",
-  "risks": "Top 2-3 specific, sector-relevant risks that could invalidate this thesis. Be concrete — not generic.",
-  "analyst_verdict": "JUSTIFIED or EXCESSIVE. State conviction (High/Medium/Low) and the single most important reason for your verdict.",
-  "summary": "Complete this: The stock is at a {level} primarily because ___."
+  "recent_price_action": "% moves over 1M/3M/6M/1Y, when the {_action_word} breakout began, and the shape of the price move. Be specific with dates and % figures.",
+  "fundamental_catalysts": "Earnings beats/misses, guidance changes, margin trends, new orders. Cite exact EPS, revenue %, margin bps from available data. Label speculation clearly.",
+  "sectoral_macro": "Industry cycle, policy tailwinds/headwinds, commodity moves, peer re-rating directly relevant to this {_action_word}.",
+  "corporate_actions": "M&A, fundraises, buybacks, promoter deals, index events — with dates and amounts. State 'None identified' if nothing material.",
+  "narrative_shift": "The old story vs. the new story. What has changed in institutional perception over the last 6-12 months?",
+  "flow_factors": "FII/DII net flows (Rs. Cr), delivery %, F&O buildup type, MF activity, short covering. Who is driving this and is it conviction or speculation?",
+  "risks": "Top 2-3 specific risks that could invalidate this {_risk_label}. Concrete and sector-relevant.",
+  "analyst_verdict": "JUSTIFIED or EXCESSIVE. Conviction: High/Medium/Low. One sentence on the single most important reason.",
+  "summary": "The stock is at a 52-week {_action_word} primarily because ___."
 }}"""
 
     last_err = ""
@@ -1398,14 +1411,15 @@ def _fallback_deep_dive(ticker, company, sector, signal,
     level = "52-week high" if is_hi else "52-week low"
     err_note = f" (OpenAI error: {error[:120]})" if error else " (OpenAI API key not configured)"
     return {
-        "price_action":          f"Price data available above. AI analysis unavailable.{err_note}",
-        "fundamental_catalysts": f"{company} is near its {level}. Fundamental catalyst research requires OpenAI API.{err_note}",
-        "sectoral_macro":        f"Sector: {sector}. Macro analysis requires OpenAI API.{err_note}",
-        "corporate_actions":     f"Corporate action research requires OpenAI API.{err_note}",
-        "narrative_shift":       f"Narrative analysis requires OpenAI API.{err_note}",
-        "flow_factors":          f"Volume surge: {vsurge:.1f}×. FII/DII flow analysis requires OpenAI API.{err_note}",
-        "risks":                 f"Risk analysis requires OpenAI API.{err_note}",
-        "summary":               f"The stock is at a {level} — enable OpenAI API for full analysis.",
+        "recent_price_action":   f"Price data available above. AI analysis unavailable.{err_note}",
+        "fundamental_catalysts": f"{company} is near its {level}. Fundamental catalyst research requires an AI API key.{err_note}",
+        "sectoral_macro":        f"Sector: {sector}. Macro analysis requires an AI API key.{err_note}",
+        "corporate_actions":     f"Corporate action research requires an AI API key.{err_note}",
+        "narrative_shift":       f"Narrative analysis requires an AI API key.{err_note}",
+        "flow_factors":          f"Volume surge: {vsurge:.1f}×. FII/DII flow analysis requires an AI API key.{err_note}",
+        "risks":                 f"Risk analysis requires an AI API key.{err_note}",
+        "analyst_verdict":       f"Verdict unavailable.{err_note}",
+        "summary":               f"The stock is at a {level} — configure an AI API key for full analysis.",
     }
 
 
@@ -1671,7 +1685,7 @@ def _build_pdf_report(
     # PAGE 2+ — ANALYST SECTIONS
     # ═══════════════════════════════════════════════════════════════════════════
     sections = [
-        ("1. RECENT PRICE ACTION",         "price_action",          _BLUE_C),
+        ("1. RECENT PRICE ACTION",         "recent_price_action",   _BLUE_C),
         ("2. FUNDAMENTAL CATALYSTS",        "fundamental_catalysts", SIGNAL_COL),
         ("3. SECTORAL & MACRO TAILWINDS",   "sectoral_macro",        _YELLOW_C),
         ("4. CORPORATE ACTIONS & EVENTS",   "corporate_actions",     _PURPLE_C),
@@ -1919,27 +1933,25 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
-    # ── 8 sections in 2-column grid ───────────────────────────────────────────
+    # ── 7 sections in 2-column grid ───────────────────────────────────────────
     left, right = st.columns(2)
     with left:
-        _section_card("🎯", "1. Primary Catalyst",
-                      analysis.get("primary_catalyst", "—"), accent)
+        _section_card("📈", "1. Recent Price Action",
+                      analysis.get("recent_price_action", "—"), accent)
         _section_card("⚡", "2. Fundamental Catalysts",
                       analysis.get("fundamental_catalysts", "—"), _BLUE)
-        _section_card("🏛", "3. Sectoral & Macro Context",
+        _section_card("🏛", "3. Sectoral & Macro Tailwinds",
                       analysis.get("sectoral_macro", "—"), _YELLOW)
         _section_card("🔔", "4. Corporate Actions & Events",
                       analysis.get("corporate_actions", "—"), "#A371F7")
 
     with right:
-        _section_card("🏦", "5. Institutional Footprint",
-                      analysis.get("institutional_footprint", "—"), "#3FB950")
-        _section_card("💬", "6. Narrative Shift",
+        _section_card("💬", "5. Narrative Shift",
                       analysis.get("narrative_shift", "—"), "#58A6FF")
-        _section_card("⚠", "7. Risks" + (" to the Rally" if is_hi else " & Recovery Triggers"),
+        _section_card("🏦", "6. Technical & Flow Factors",
+                      analysis.get("flow_factors", "—"), "#3FB950")
+        _section_card("⚠", "7. Risks" + (" to the Rally" if is_hi else " to Recovery"),
                       analysis.get("risks", "—"), _RED)
-        _section_card("📰", "8. What Changed — Latest News",
-                      analysis.get("corporate_actions", "—"), _MUTED)
 
     # ── Full Google News feed ─────────────────────────────────────────────────
     st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
@@ -2221,18 +2233,4 @@ def main():
                 st.markdown("<hr/>", unsafe_allow_html=True)
                 _render_spotlight(selected_lo, row, p)
 
-    # ── ERRORS TAB ────────────────────────────────────────────────────────────
-    with t_err:
-        if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
-        else:
-            err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
-
-    # ── Auto-refresh sleep + rerun ────────────────────────────────────────────
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-# ── Entry point ─────────────────────────────────────────────────�
+    # ── ERRORS TAB ─────────────────────────────────�
