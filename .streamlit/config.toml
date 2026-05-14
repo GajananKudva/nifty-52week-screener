@@ -3,7 +3,6 @@ base = "dark"
 
 [server]
 headless = true
-enableCORS = false
 
 [browser]
 gatherUsageStats = false
