@@ -570,6 +570,223 @@ class DataEngine:
             logger.debug(f"{ticker}: fetch_news failed — {exc}")
             return []
 
+    # ── 7. NSE Live Hybrid Screener ───────────────────────────────────────────
+    def screen_from_nse_live(self, nse_stocks: list[dict]) -> dict:
+        """
+        Hybrid NSE-first screener.
+
+        Phase 1 (fast):
+          - Accepts the list returned by nse_bse.get_nse_index_live()
+          - Uses NSE's pre-calculated nearWKH / nearWKL to filter candidates
+            in a single pass — no yfinance calls needed yet.
+
+        Phase 2 (targeted):
+          - For each candidate, fetches only 30-days of yfinance history
+            to compute the 20-day average volume and volume_surge.
+          - Applies the volume_surge threshold filter.
+          - Fetches fundamentals + news + DCF only for confirmed signals.
+
+        Returns the same dict structure as screen_universe():
+          {"highs": DataFrame, "lows": DataFrame,
+           "all_flagged": DataFrame, "errors": list}
+        """
+        threshold_pct = self.config.breakout_threshold * 100   # e.g. 2.5
+        sleep_short   = self.config.rate_limit_sleep
+
+        logger.info(
+            f"NSE live screen | {len(nse_stocks)} stocks | "
+            f"threshold={threshold_pct:.1f}%"
+        )
+
+        # ── Phase 1: threshold filter using NSE nearWKH / nearWKL ────────────
+        candidates: list[dict] = []
+        for s in nse_stocks:
+            wkh = s.get("near_wkh")
+            wkl = s.get("near_wkl")
+            is_near_high = wkh is not None and wkh <= threshold_pct
+            is_near_low  = wkl is not None and wkl <= threshold_pct
+            if is_near_high or is_near_low:
+                s["_candidate_high"] = is_near_high
+                s["_candidate_low"]  = is_near_low
+                candidates.append(s)
+
+        logger.info(f"Phase 1 done: {len(candidates)} candidates within {threshold_pct:.1f}% of 52W extreme")
+
+        # ── Phase 2: volume validation + fundamentals for candidates ─────────
+        all_records: list[dict] = []
+
+        for idx, s in enumerate(candidates):
+            ticker = s["ticker"]
+            logger.info(f"[{idx+1:>3}/{len(candidates)}] {ticker}")
+
+            if idx > 0:
+                time.sleep(sleep_short)
+
+            # ── Fetch short history for volume baseline (30 days is enough) ──
+            try:
+                end_date   = datetime.now() + timedelta(days=1)
+                start_date = datetime.now() - timedelta(days=45)   # ~30 trading days
+                stock_obj  = yf.Ticker(ticker)
+                df_short   = stock_obj.history(
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
+                    auto_adjust=True,
+                    actions=False,
+                )
+
+                if df_short is None or df_short.empty:
+                    raise ValueError("Empty short history")
+
+                if isinstance(df_short.columns, pd.MultiIndex):
+                    df_short.columns = df_short.columns.get_level_values(0)
+                df_short.columns = [str(c).strip().title() for c in df_short.columns]
+                df_short = df_short[df_short["Close"].notna() & (df_short["Close"] > 0)]
+                df_short.sort_index(inplace=True)
+
+            except Exception as exc:
+                logger.warning(f"{ticker}: short history fetch failed — {exc}")
+                self._log_error(ticker, "nse_short_history", exc)
+                continue
+
+            # ── Volume surge ──────────────────────────────────────────────────
+            if len(df_short) < self.config.volume_window + 2:
+                logger.info(f"{ticker}: insufficient short-history rows — skip")
+                continue
+
+            current_vol   = float(df_short["Volume"].iloc[-1])
+            baseline_vols = df_short["Volume"].iloc[-(self.config.volume_window + 1):-1]
+            avg_vol_20d   = float(baseline_vols.mean())
+
+            if avg_vol_20d <= 0 or np.isnan(avg_vol_20d):
+                logger.warning(f"{ticker}: zero/NaN avg volume — skip")
+                continue
+
+            volume_surge = current_vol / avg_vol_20d
+
+            # ── Determine signal from NSE near_wkh / near_wkl ────────────────
+            near_wkh = s.get("near_wkh", 999.0)
+            near_wkl = s.get("near_wkl", 999.0)
+            vol_ok   = volume_surge >= self.config.volume_surge_threshold
+
+            if s["_candidate_high"] and vol_ok:
+                signal = "BREAKOUT_HIGH"
+            elif s["_candidate_low"] and vol_ok:
+                signal = "BREAKDOWN_LOW"
+            else:
+                signal = None
+
+            # ── Price and level data from NSE ─────────────────────────────────
+            try:
+                current_price = float(s["last_price"] or 0)
+                if current_price <= 0:
+                    current_price = float(df_short["Close"].iloc[-1])
+            except (TypeError, ValueError):
+                current_price = float(df_short["Close"].iloc[-1])
+
+            try:
+                year_high = float(s["year_high"])
+                year_low  = float(s["year_low"])
+            except (TypeError, ValueError):
+                year_high = float(df_short["High"].max())
+                year_low  = float(df_short["Low"].min())
+
+            pct_from_high = (near_wkh or 0.0) / 100.0
+            pct_from_low  = (near_wkl or 0.0) / 100.0
+
+            # ── Trailing returns from short history ───────────────────────────
+            def trailing_ret(n_days: int) -> Optional[float]:
+                if len(df_short) > n_days:
+                    base = float(df_short["Close"].iloc[-n_days - 1])
+                    return round((current_price / base - 1) * 100, 2) if base > 0 else None
+                return None
+
+            record = {
+                "ticker":        ticker,
+                "company_name":  s.get("company_name") or ticker,
+                "sector":        s.get("sector") or None,
+                "industry":      s.get("sector") or None,   # NSE gives "industry" as sector
+                "current_price": round(current_price, 2),
+                "week_52_high":  round(year_high, 2),
+                "week_52_low":   round(year_low, 2),
+                "pct_from_high": round(pct_from_high * 100, 2),
+                "pct_from_low":  round(pct_from_low  * 100, 2),
+                "volume_surge":  round(volume_surge, 2),
+                "avg_vol_20d":   int(avg_vol_20d),
+                "current_vol":   int(current_vol),
+                "signal":        signal,
+                "ret_1m":        trailing_ret(21),
+                "ret_3m":        trailing_ret(63) if len(df_short) > 63 else None,
+                "ret_6m":        trailing_ret(126) if len(df_short) > 126 else None,
+            }
+
+            # ── Fundamentals + news + DCF only for confirmed signals ──────────
+            if signal is not None:
+                time.sleep(sleep_short)
+                fundamentals  = self.fetch_fundamentals(ticker)
+                news_headlines = self.fetch_news(ticker)
+                dcf            = self.calculate_dcf(ticker, current_price, fundamentals)
+
+                # Keep NSE company name if yfinance returns a generic fallback
+                if fundamentals.get("company_name") == ticker:
+                    fundamentals["company_name"] = s.get("company_name") or ticker
+                if not fundamentals.get("sector") and s.get("sector"):
+                    fundamentals["sector"]   = s["sector"]
+                    fundamentals["industry"] = s["sector"]
+
+                record.update({**fundamentals, **dcf,
+                               "news_headlines": news_headlines})
+
+                logger.info(
+                    f"  ✓ {signal} | VolSurge={volume_surge:.2f}x "
+                    f"| nearWKH={near_wkh}% nearWKL={near_wkl}%"
+                    f"| DCF upside={record.get('upside_downside_pct')}%"
+                )
+            else:
+                record.update({
+                    "pe_ratio": None, "forward_pe": None,
+                    "fcf": None, "market_cap": None, "beta": None,
+                    "intrinsic_value": None, "upside_downside_pct": None,
+                    "dcf_stage1_growth": None, "news_headlines": [],
+                })
+
+            all_records.append(record)
+
+        # ── Assemble DataFrames ───────────────────────────────────────────────
+        if not all_records:
+            logger.warning("NSE live screen: no records produced.")
+            return {
+                "highs":       pd.DataFrame(),
+                "lows":        pd.DataFrame(),
+                "all_flagged": pd.DataFrame(),
+                "errors":      self.errors,
+            }
+
+        all_df  = pd.DataFrame(all_records)
+        flagged = all_df[all_df["signal"].notna()].copy()
+
+        highs_df = flagged[flagged["signal"] == "BREAKOUT_HIGH"].copy()
+        lows_df  = flagged[flagged["signal"] == "BREAKDOWN_LOW"].copy()
+
+        _sort_col = "upside_downside_pct"
+        if not highs_df.empty and _sort_col in highs_df.columns:
+            highs_df.sort_values(_sort_col, ascending=False, inplace=True)
+        if not lows_df.empty and _sort_col in lows_df.columns:
+            lows_df.sort_values(_sort_col, ascending=False, inplace=True)
+
+        logger.info(
+            f"NSE live screen complete | "
+            f"{len(highs_df)} BREAKOUT_HIGH | "
+            f"{len(lows_df)} BREAKDOWN_LOW | "
+            f"{len(self.errors)} errors"
+        )
+
+        return {
+            "highs":       highs_df,
+            "lows":        lows_df,
+            "all_flagged": flagged,
+            "errors":      self.errors,
+        }
+
     # ── Internal helpers ──────────────────────────────────────────────────────
     def _log_error(self, ticker: str, step: str, exc: Exception) -> None:
         self.errors.append({

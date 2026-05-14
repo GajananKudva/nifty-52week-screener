@@ -376,3 +376,91 @@ def build_nse_bse_context(symbol: str) -> str:
 
     lines.append("\n" + "=" * 60)
     return "\n".join(lines) if any_data else ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Bulk live screener — 1 API call for all stocks in a NSE index
+# ──────────────────────────────────────────────────────────────────────────────
+
+_NSE_INDEX_MAP = {
+    "NIFTY 500":    "NIFTY%20500",
+    "NIFTY 50":     "NIFTY%2050",
+    "NIFTY NEXT 50":"NIFTY%20NEXT%2050",
+    "NIFTY 100":    "NIFTY%20100",
+    "NIFTY 200":    "NIFTY%20200",
+    "NIFTY MIDCAP 100": "NIFTY%20MIDCAP%20100",
+    "NIFTY SMALLCAP 100": "NIFTY%20SMALLCAP%20100",
+}
+
+
+def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
+    """
+    Fetch all constituents of a NSE index with live prices and 52-week levels
+    in a single API call.
+
+    Returns a list of dicts with keys:
+      symbol, ticker, company_name, sector,
+      last_price, year_high, year_low,
+      volume, pct_change,
+      near_wkh  (% below 52W high — 0 = at high),
+      near_wkl  (% above 52W low  — 0 = at low)
+
+    Returns empty list on failure.
+    """
+    encoded = _NSE_INDEX_MAP.get(index.upper().strip(),
+                                 index.replace(" ", "%20").upper())
+    try:
+        s = _session()
+        r = s.get(
+            f"https://www.nseindia.com/api/equity-stockIndices?index={encoded}",
+            headers=_NSE_HDRS,
+            timeout=20,
+        )
+        r.raise_for_status()
+        raw_data = r.json().get("data", [])
+    except Exception:
+        return []
+
+    result = []
+    for stock in raw_data:
+        sym = str(stock.get("symbol") or "").strip().upper()
+        if not sym or sym in ("NIFTY 500", "NIFTY 50", "NIFTY 100",
+                              "NIFTY 200", "NIFTY NEXT 50",
+                              "NIFTY MIDCAP 100", "NIFTY SMALLCAP 100"):
+            continue   # skip the index row itself
+
+        meta = stock.get("meta") or {}
+
+        # nearWKH / nearWKL: NSE pre-computes "% away from 52W high/low"
+        # Values are already percentages (e.g. 2.5 means 2.5% away)
+        near_wkh = stock.get("nearWKH")
+        near_wkl = stock.get("nearWKL")
+
+        try:
+            near_wkh = float(near_wkh) if near_wkh is not None else None
+        except (TypeError, ValueError):
+            near_wkh = None
+
+        try:
+            near_wkl = float(near_wkl) if near_wkl is not None else None
+        except (TypeError, ValueError):
+            near_wkl = None
+
+        result.append({
+            "symbol":       sym,
+            "ticker":       f"{sym}.NS",
+            "company_name": (meta.get("companyName") or sym),
+            "sector":       (meta.get("industry") or ""),
+            "last_price":   stock.get("lastPrice"),
+            "year_high":    stock.get("yearHigh"),
+            "year_low":     stock.get("yearLow"),
+            "volume":       stock.get("totalTradedVolume"),
+            "pct_change":   stock.get("pChange"),
+            "near_wkh":     near_wkh,
+            "near_wkl":     near_wkl,
+        })
+
+    return result
+
+
+# ───────────�
