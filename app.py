@@ -1978,7 +1978,7 @@ def _render_sidebar() -> dict:
         universe = st.radio(
             "Universe",
             options=["Nifty 500 (live)", "Nifty 50 only", "Custom"],
-            index=0,
+            index=1,
             label_visibility="collapsed",
         )
         custom_txt = ""

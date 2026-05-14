@@ -81,8 +81,8 @@ class DataEngine:
           - Validates required columns before returning.
         """
         try:
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=self.config.history_buffer_days)
+            end_date   = datetime.now() + timedelta(days=1)   # +1 so yfinance includes today
+            start_date = datetime.now() - timedelta(days=self.config.history_buffer_days)
 
             stock = yf.Ticker(ticker)
             df = stock.history(
@@ -152,10 +152,20 @@ class DataEngine:
                 return None
 
             window_df = df.tail(n)
-            current_price = float(df["Close"].iloc[-1])
+
+            # Use live price from fast_info — more current than last Close row
+            try:
+                live = float(stock.fast_info.last_price or 0)
+            except Exception:
+                live = 0.0
+            last_close    = float(df["Close"].iloc[-1])
+            current_price = live if live > 0 else last_close
+
+            # Use today's intraday high if available (last row = today's partial candle)
+            today_high    = float(df["High"].iloc[-1])
             current_vol   = float(df["Volume"].iloc[-1])
 
-            week52_high = float(window_df["High"].max())
+            week52_high = max(float(window_df["High"].max()), today_high)
             week52_low  = float(window_df["Low"].min())
 
             # ── Volume Surge Multiplier ───────────────────────────────────────
