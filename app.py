@@ -1328,15 +1328,17 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking 
             base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
         )
         kwargs: dict = {"temperature": 0.2}
-        # json_object mode works on llama/deepseek models on Groq and all OpenAI models
-        kwargs["response_format"] = {"type": "json_object"}
+        # DeepSeek R1 on Groq does NOT support response_format JSON mode —
+        # only enable it for OpenAI and non-R1 Groq models
+        if "deepseek" not in _OPENAI_MODEL.lower():
+            kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(
             model=_OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             **kwargs,
         )
         raw = response.choices[0].message.content.strip()
-        # Strip DeepSeek R1 internal thinking tags if present
+        # Strip DeepSeek R1 internal thinking tags
         if "<think>" in raw:
             import re as _re
             raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
@@ -1345,6 +1347,13 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking 
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
+            raw = raw.rstrip("`")
+        # Find JSON object in response even if there's surrounding text
+        if not raw.strip().startswith("{"):
+            import re as _re
+            m = _re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                raw = m.group(0)
         result = json.loads(raw.strip())
         st.session_state[cache_key] = result
         return result
@@ -1829,7 +1838,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     # ── Detect quota error and show actionable help ───────────────────────────
     summary       = analysis.get("summary", "")
-    is_api_fail = "enable OpenAI API" in summary or "OpenAI error" in summary
+    is_api_fail = ("enable OpenAI API" in summary or "OpenAI error" in summary
+                   or "requires OpenAI API" in summary)
 
     if is_api_fail:
         st.markdown(
