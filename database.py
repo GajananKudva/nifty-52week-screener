@@ -104,6 +104,7 @@ def _conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     """Create tables if they don't exist.  Safe to call on every startup."""
+    # NOTE: also called automatically at module import (see bottom of file)
     with _conn() as con:
         con.executescript(_DDL)
     logger.info(f"DB initialised at {_DB_PATH}")
@@ -326,4 +327,4 @@ def _cleanup_old_runs(universe: str) -> None:
                 to_delete,
             )
             con.commit()
-            logger.debug(f"Pruned {len(to_delete)} old runs for {universe}")
+ 
