@@ -14,13 +14,15 @@ __pycache__/
 report_*.html
 report_*.pdf
 
+# ── Database files ────────────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
 # ── Virtual environments ──────────────────────────────────────────────────────
 venv/
 .venv/
 env/
 .env/
 
-# ── OS files ─────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-desktop.ini
+# ── OS file
