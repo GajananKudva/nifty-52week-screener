@@ -25,9 +25,10 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
-_FMP_BASE = "https://financialmodelingprep.com/api/v3"
-_FMP_KEY  = os.getenv("FMP_API_KEY", "").strip()
-_TIMEOUT  = 10   # seconds per request
+_FMP_BASE    = "https://financialmodelingprep.com/api/v3"
+_FMP_BASE_V4 = "https://financialmodelingprep.com/api/v4"
+_FMP_KEY     = os.getenv("FMP_API_KEY", "").strip()
+_TIMEOUT     = 10   # seconds per request
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ _TIMEOUT  = 10   # seconds per request
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _get(endpoint: str, params: dict | None = None) -> Any:
-    """GET wrapper — returns parsed JSON or empty list/dict on failure."""
+    """GET wrapper (v3) — returns parsed JSON or empty list/dict on failure."""
     if not _FMP_KEY:
         return []
     p = {"apikey": _FMP_KEY}
@@ -43,6 +44,21 @@ def _get(endpoint: str, params: dict | None = None) -> Any:
         p.update(params)
     try:
         r = requests.get(f"{_FMP_BASE}/{endpoint}", params=p, timeout=_TIMEOUT)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return []
+
+
+def _get_v4(endpoint: str, params: dict | None = None) -> Any:
+    """GET wrapper (v4) — returns parsed JSON or empty list/dict on failure."""
+    if not _FMP_KEY:
+        return []
+    p = {"apikey": _FMP_KEY}
+    if params:
+        p.update(params)
+    try:
+        r = requests.get(f"{_FMP_BASE_V4}/{endpoint}", params=p, timeout=_TIMEOUT)
         r.raise_for_status()
         return r.json()
     except Exception:
@@ -105,6 +121,25 @@ def get_financial_growth(symbol: str, limit: int = 4) -> list[dict]:
     data = _get(f"financial-growth/{_clean(symbol)}",
                 params={"period": "quarter", "limit": limit})
     return data if isinstance(data, list) else []
+
+
+def get_institutional_ownership(symbol: str, limit: int = 4) -> list[dict]:
+    sym  = _clean(symbol).replace(".NS", "").replace(".BO", "")
+    data = _get_v4(f"institutional-ownership/symbol-ownership",
+                   params={"symbol": sym, "limit": limit, "includeCurrentQuarter": "true"})
+    return data if isinstance(data, list) else []
+
+
+def get_insider_transactions(symbol: str, limit: int = 10) -> list[dict]:
+    sym  = _clean(symbol).replace(".NS", "").replace(".BO", "")
+    data = _get_v4(f"insider-trading", params={"symbol": sym, "limit": limit})
+    return data if isinstance(data, list) else []
+
+
+def get_price_targets(symbol: str, limit: int = 5) -> list[dict]:
+    sym  = _clean(symbol).replace(".NS", "").replace(".BO", "")
+    data = _get_v4(f"price-target", params={"symbol": sym})
+    return data[:limit] if isinstance(data, list) else []
 
 
 def get_latest_transcript(symbol: str) -> str:
@@ -258,11 +293,48 @@ def build_fmp_context(ticker: str) -> str:
     transcript = get_latest_transcript(ticker)
     if transcript:
         lines.append("\n[LATEST EARNINGS CALL TRANSCRIPT — Excerpt]")
-        # Wrap at 90 chars for readability
         for para in transcript.split("\n"):
             wrapped = textwrap.fill(para.strip(), width=90)
             if wrapped:
                 lines.append(f"  {wrapped}")
+
+    # ── 7. Institutional ownership ───────────────────────────────────────────
+    inst = get_institutional_ownership(ticker)
+    if inst:
+        lines.append("\n[INSTITUTIONAL OWNERSHIP — Latest Quarter]")
+        for row in inst[:5]:
+            investor  = row.get("investorName", "?")
+            shares    = row.get("sharesNumber", "?")
+            chg       = row.get("change", None)
+            chg_str   = f"  (chg: {int(chg):+,})" if chg is not None else ""
+            lines.append(f"  {investor:<35}: {shares:,} shares{chg_str}" if isinstance(shares, int)
+                         else f"  {investor:<35}: {shares}{chg_str}")
+
+    # ── 8. Insider transactions ──────────────────────────────────────────────
+    insider = get_insider_transactions(ticker)
+    if insider:
+        lines.append("\n[INSIDER TRANSACTIONS — Recent]")
+        for tx in insider[:6]:
+            name       = tx.get("reportingName") or tx.get("name") or "?"
+            trans_type = tx.get("transactionType") or tx.get("acquistionOrDisposition") or "?"
+            shares     = tx.get("securitiesTransacted") or tx.get("shares") or "?"
+            price      = tx.get("price") or "?"
+            date       = tx.get("transactionDate") or tx.get("date") or ""
+            lines.append(f"  {date:<12} | {name[:25]:<25} | {trans_type:<10} | "
+                         f"Qty: {shares}  @ ${price}")
+
+    # ── 9. Analyst price targets ─────────────────────────────────────────────
+    targets = get_price_targets(ticker)
+    if targets:
+        lines.append("\n[ANALYST PRICE TARGETS]")
+        for t in targets[:4]:
+            analyst    = t.get("analystName") or t.get("analyst") or "?"
+            company_nm = t.get("analystCompany") or ""
+            target     = t.get("priceTarget") or "?"
+            prev       = t.get("priceWhenPosted") or t.get("stockPriceWhenPosted") or "?"
+            date       = t.get("publishedDate", "")[:10]
+            lines.append(f"  {date:<12} | {analyst[:20]:<20} ({company_nm[:15]}) | "
+                         f"Target: ${target}  (was ${prev})")
 
     lines.append("\n" + "=" * 60)
     return "\n".join(lines)

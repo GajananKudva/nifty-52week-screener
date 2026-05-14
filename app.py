@@ -112,6 +112,15 @@ try:
     _INDIA_MACRO_OK = True
 except ImportError:
     _INDIA_MACRO_OK = False
+
+# ── NSE/BSE stock-level data (no key needed) ──────────────────────────────────
+try:
+    from nse_bse import build_nse_bse_context
+    _NSE_BSE_OK = True
+except ImportError:
+    _NSE_BSE_OK = False
+    def build_nse_bse_context(_sym: str) -> str:  # type: ignore[misc]
+        return ""
     def build_india_macro_context() -> str:       # type: ignore[misc]
         return ""
     def get_dashboard_snapshot() -> dict:         # type: ignore[misc]
@@ -417,7 +426,7 @@ hr { border-color: #21262D !important; margin: 12px 0 !important; }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 3.  CONSTANTS
+# 3.  CONSTANTS & SECTOR LENS
 # ══════════════════════════════════════════════════════════════════════════════
 _GREEN  = "#00c805"
 _RED    = "#ff3b3b"
@@ -425,6 +434,91 @@ _YELLOW = "#F0B429"
 _BLUE   = "#58A6FF"
 _MUTED  = "#8B949E"
 _BG     = "#0D1117"
+
+# Sector-specific analytical frameworks injected into the analyst prompt
+_SECTOR_LENS: dict[str, str] = {
+    "BANK": (
+        "Key metrics: NIM trajectory, GNPA/NNPA %, PCR, CASA ratio, credit cost, loan growth by segment. "
+        "52W HIGH → is it NIM expansion, loan growth re-rating, or asset quality improvement? "
+        "52W LOW → asset quality deterioration, credit squeeze, or RBI regulatory action?"
+    ),
+    "NBFC": (
+        "Key metrics: AUM growth, cost of funds vs yield on assets, NIM, stage-2/stage-3 assets, CAR. "
+        "Watch for RBI circular impacts, co-lending arrangements, and ALM mismatches."
+    ),
+    "IT": (
+        "Key metrics: deal TCV (total contract value), revenue guidance in USD, attrition rate, "
+        "vertical mix (BFSI/Retail/Hi-tech), EBIT margin trajectory. "
+        "52W HIGH → large deal ramp-up, demand recovery, or multiple expansion? "
+        "52W LOW → demand slowdown in key verticals, margin pressure, or guidance cut?"
+    ),
+    "PHARMA": (
+        "Key metrics: USFDA approvals/483 observations, ANDA pipeline filings, US generic price erosion %, "
+        "domestic formulations growth, API vs formulations revenue mix. "
+        "52W HIGH → new product launch, USFDA clearance, or domestic market share gain? "
+        "52W LOW → import alert, warning letter, or US price erosion acceleration?"
+    ),
+    "AUTO": (
+        "Key metrics: wholesale volumes by segment (2W/PV/CV/EV), ASP mix shift, dealer inventory days, "
+        "commodity cost (steel/aluminium/rubber), EV transition traction. "
+        "52W HIGH → volume surprise, EV re-rating, or ASP improvement? "
+        "52W LOW → volume miss, inventory pile-up, or EV transition risk?"
+    ),
+    "FMCG": (
+        "Key metrics: volume growth vs price growth (mix), gross margin (palm oil/wheat/crude derivatives), "
+        "rural vs urban demand split, distribution reach, market share by category. "
+        "52W HIGH → volume recovery, gross margin expansion, or rural demand uptick? "
+        "52W LOW → volume slowdown, commodity cost spike, or competitive intensity?"
+    ),
+    "METAL": (
+        "Key metrics: LME commodity prices, domestic vs export realisations, EBITDA/tonne, "
+        "capacity utilisation, coking coal/iron ore input costs, China demand signals. "
+        "52W HIGH → commodity cycle upturn, China stimulus, or cost reduction? "
+        "52W LOW → commodity price collapse, China demand weakness, or input cost spike?"
+    ),
+    "INFRA": (
+        "Key metrics: order book size (in x of revenue), L1 pipeline, execution rate, "
+        "working capital cycle days, government capex budget utilisation. "
+        "52W HIGH → large order win, government capex push, or execution improvement? "
+        "52W LOW → order slowdown, payment delays, or balance sheet stress?"
+    ),
+    "REALTY": (
+        "Key metrics: pre-sales value (Rs. Cr), collections, net debt, project launches, land bank value. "
+        "52W HIGH → pre-sales surge, interest rate cut benefit, or new project launch? "
+        "52W LOW → demand slowdown, unsold inventory build-up, or debt concerns?"
+    ),
+    "POWER": (
+        "Key metrics: PLF (plant load factor), tariff revisions, capacity addition pipeline, "
+        "T&D losses, renewable vs thermal mix, PPA coverage. "
+        "52W HIGH → tariff hike approval, capacity addition, or renewable re-rating? "
+        "52W LOW → PLF decline, fuel supply issues, or regulatory headwinds?"
+    ),
+    "CEMENT": (
+        "Key metrics: volume growth (mn tonnes), realisation/tonne, fuel costs (pet coke/coal), "
+        "capacity utilisation %, regional demand mix. "
+        "52W HIGH → price hike realisation, cost decline, or demand surge? "
+        "52W LOW → volume pressure, fuel cost spike, or price war?"
+    ),
+    "TELECOM": (
+        "Key metrics: ARPU trend, subscriber net adds/churn, data usage/user, spectrum costs, "
+        "5G rollout capex, revenue market share. "
+        "52W HIGH → ARPU expansion, 5G monetisation, or tariff hike? "
+        "52W LOW → subscriber churn, spectrum cost pressure, or capex drag?"
+    ),
+}
+
+
+def _get_sector_lens(sector: str) -> str:
+    """Return sector-specific analytical framework or a generic one."""
+    sector_up = sector.upper()
+    for key, lens in _SECTOR_LENS.items():
+        if key in sector_up:
+            return lens
+    return (
+        "Focus on: earnings quality, revenue growth sustainability, margin trajectory, "
+        "management execution vs guidance, competitive positioning vs listed peers, "
+        "and whether the move is driven by fundamentals or pure sentiment/flows."
+    )
 _CARD   = "#161B22"
 
 _INDEX_MAP: dict[str, str] = {
@@ -1131,16 +1225,16 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   price: float, high52: float, low52: float,
                   pct_from_high: float, pct_from_low: float,
                   vsurge: float, pe: float, dcf_upside: float,
-                      news_headlines: str,
-                      fmp_context: str = "",
-                      fred_context: str = "",
-                      india_macro_context: str = "") -> dict:
+                  news_headlines: str,
+                  fmp_context: str = "",
+                  fred_context: str = "",
+                  india_macro_context: str = "",
+                  nse_bse_context: str = "") -> dict:
     """
-    Call OpenAI with the senior equity analyst prompt.
+    Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
     Failed calls are never cached so retry always hits the API fresh.
     """
-    # ── Session-state cache (only stores successes) ───────────────────────────
     cache_key = f"ai_{ticker}_{signal}"
     if cache_key in st.session_state:
         return st.session_state[cache_key]
@@ -1150,110 +1244,113 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                                    price, high52, low52, pct_from_high,
                                    pct_from_low, vsurge, pe, dcf_upside)
 
-    is_hi  = "HIGH" in signal.upper()
-    level  = "52-WEEK HIGH" if is_hi else "52-WEEK LOW"
-    action = "rally" if is_hi else "sell-off"
+    is_hi   = "HIGH" in signal.upper()
+    extreme = "HIGH" if is_hi else "LOW"
+    level   = "52-week high" if is_hi else "52-week low"
 
-    # Trim contexts to keep total prompt under ~3,000 tokens
     def _trim(text: str, max_chars: int) -> str:
         return text[:max_chars] + "\n[...truncated]" if len(text) > max_chars else text
 
-    fmp_block         = f"\n\n{_trim(fmp_context, 2000)}"         if fmp_context         else ""
-    fred_block        = f"\n\n{_trim(fred_context, 800)}"         if fred_context        else ""
-    india_macro_block = f"\n\n{_trim(india_macro_context, 800)}"  if india_macro_context else ""
-    all_context       = fmp_block + fred_block + india_macro_block
+    fmp_block      = f"\n\n{_trim(fmp_context, 2000)}"      if fmp_context      else ""
+    fred_block     = f"\n\n{_trim(fred_context, 800)}"      if fred_context     else ""
+    india_block    = f"\n\n{_trim(india_macro_context, 800)}" if india_macro_context else ""
+    nse_bse_block  = f"\n\n{_trim(nse_bse_context, 1500)}"  if nse_bse_context  else ""
+    all_context    = fmp_block + fred_block + india_block + nse_bse_block
 
-    if is_hi:
-        prompt = f"""Act as a senior equity analyst. {company} ({ticker}, NSE India) has hit a 52-week high.
-Identify and explain the specific catalysts driving this {action}.
+    sector_lens = _get_sector_lens(sector)
 
-Stock data:
-- Sector       : {sector}
-- Current Price: Rs.{price:,.2f}
-- 52W High     : Rs.{high52:,.2f}  ({abs(pct_from_high):.2f}% from high)
-- 52W Low      : Rs.{low52:,.2f}  ({abs(pct_from_low):.2f}% above low)
-- Volume Surge : {vsurge:.1f}x vs 20-day avg
-- P/E Ratio    : {pe if pe else "N/A"}
-- DCF Upside   : {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
-- Recent Headlines: {news_headlines}
+    prompt = f"""You are a senior equity research analyst at JPMorgan India with 15 years of experience.
+
+A stock has hit its {level}. Your job is to write a precise, evidence-backed research note
+explaining specifically WHY this happened — not a generic company overview.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STOCK: {company} ({ticker}) | Sector: {sector}
+EVENT: 52-Week {extreme} at ₹{price:,.2f}
+  • {abs(pct_from_high):.1f}% from 52W High (₹{high52:,.2f})
+  • {abs(pct_from_low):.1f}% from 52W Low  (₹{low52:,.2f})
+  • Volume Surge: {vsurge:.1f}x 20-day average
+  • P/E: {pe if pe else "N/A"}x  |  DCF Upside: {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+  • Recent Headlines: {news_headlines}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SECTOR-SPECIFIC LENS FOR {sector.upper()}:
+{sector_lens}
+
+ALL AVAILABLE DATA:
 {all_context}
 
-IMPORTANT: You have been provided with verified financial data above (FMP fundamentals, FRED global macro, India macro/FII-DII flows).
-Use the actual earnings numbers, margin figures, growth rates, and transcript quotes wherever possible.
-Cite specific figures (e.g. "beat EPS by 8.2% in Q3 FY25", "gross margin expanded 340bps").
-Label any claim not supported by the above data as [SPECULATIVE].
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ANALYTICAL TASK — answer the question: "Why is {company} at a {level}?"
 
-Return ONLY a valid JSON object with exactly these 8 keys (no markdown, no code fences):
+Focus your analysis on:
+1. PRIMARY CATALYST: The single most specific, evidence-backed reason. Was it an earnings
+   beat/miss? A bulk deal by a major institution? FII flow change? A policy announcement?
+   Short covering or genuine accumulation (use delivery % and F&O buildup data)?
+
+2. INSTITUTIONAL FOOTPRINT: Use delivery %, F&O buildup, bulk/block deals, FII/DII flows,
+   and promoter shareholding to answer WHO is driving this move and whether it is
+   conviction buying/selling or speculative activity.
+
+3. FUNDAMENTAL JUSTIFICATION: Do earnings, margins, and growth actually justify this price?
+   Cite specific numbers from the FMP data. Is this a valuation re-rating or business
+   performance improvement?
+
+4. NARRATIVE SHIFT: What changed in the market's perception of this company?
+
+5. RISKS: What specifically could invalidate or reverse this move?
+
+6. VERDICT: Is this move JUSTIFIED (fundamental re-rating) or EXCESSIVE (flow-driven)?
+   State your conviction level clearly.
+
+Write like a senior analyst — specific, direct, opinionated, evidence-cited.
+If data is insufficient for a point, say so briefly rather than speculating.
+Label any claim not in the data as [SPECULATIVE].
+
+IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking text.
+
 {{
-  "price_action": "Describe the % move over 1M, 3M, 6M, 1Y and when the breakout began. Cite actual price levels.",
-  "fundamental_catalysts": "Use the FMP earnings data above. Quote actual EPS beats, margin trends, revenue growth rates. Be specific with numbers.",
-  "sectoral_macro": "Cover industry cycle turns, policy changes, government incentives (PLI, tariffs, regulation), commodity moves, or peer re-rating relevant to {sector}.",
-  "corporate_actions": "Cover management changes, M&A, demergers, fundraises, buybacks, promoter buying, block deals, or index inclusion in the last 6 months.",
-  "narrative_shift": "What is the new story the market is pricing in vs 6-12 months ago? Has the company moved from one bucket (commodity/cyclical) to another (structural/growth)?",
-  "flow_factors": "Cover FII/DII buying, mutual fund accumulation, breakout from long consolidation, or short covering.",
-  "risks": "What could break this story? Address valuation, execution risk, dependency on a single driver, and any other material risks.",
-  "summary": "One sentence completing: The stock is at a 52-week high primarily because _."
-}}"""
-    else:
-        prompt = f"""Act as a senior equity analyst. {company} ({ticker}, NSE India) has hit a 52-week low.
-Identify and explain the specific catalysts driving this {action}.
-
-Stock data:
-- Sector       : {sector}
-- Current Price: Rs.{price:,.2f}
-- 52W High     : Rs.{high52:,.2f}  ({abs(pct_from_high):.2f}% below high)
-- 52W Low      : Rs.{low52:,.2f}  ({abs(pct_from_low):.2f}% from low)
-- Volume Surge : {vsurge:.1f}x vs 20-day avg
-- P/E Ratio    : {pe if pe else "N/A"}
-- DCF Upside   : {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
-- Recent Headlines: {news_headlines}
-{all_context}
-
-IMPORTANT: You have been provided with verified financial data above (FMP fundamentals, FRED global macro, India macro/FII-DII flows).
-Use the actual earnings numbers, margin figures, growth rates, and transcript quotes wherever possible.
-Cite specific figures. Label any claim not supported by the above data as [SPECULATIVE].
-
-Return ONLY a valid JSON object with exactly these 8 keys (no markdown, no code fences):
-{{
-  "price_action": "Describe the % decline over 1M, 3M, 6M, 1Y and when the breakdown began. Cite actual price levels.",
-  "fundamental_catalysts": "Use the FMP earnings data above. Quote actual EPS misses, margin compression, revenue declines. Be specific with numbers.",
-  "sectoral_macro": "Cover industry cycle deterioration, adverse policy changes, regulatory headwinds, commodity pressure, or peer de-rating relevant to {sector}.",
-  "corporate_actions": "Cover management exits, stake sales, promoter pledging or selling, fundraise failures, or index exclusion in the last 6 months.",
-  "narrative_shift": "What story broke down vs 6-12 months ago? Has the company been re-rated from growth/structural to cyclical/value-trap?",
-  "flow_factors": "Cover FII/DII selling, mutual fund redemptions, breakdown from key support, or long unwinding.",
-  "risks": "What could reverse or deepen this fall? Address valuation support, potential catalysts for recovery, and risks of further downside.",
-  "summary": "One sentence completing: The stock is at a 52-week low primarily because _."
+  "primary_catalyst": "2-3 sentences: THE specific reason for this {level}. Cite exact data — earnings numbers, deal names, flow figures, policy events.",
+  "fundamental_catalysts": "Are fundamentals justifying this move? Quote specific EPS beats/misses, margin %, revenue growth rates from FMP data. Is the business better or worse than 6 months ago?",
+  "institutional_footprint": "WHO is driving this? Cite delivery %, F&O buildup type, bulk/block deal names, FII/DII net flows, promoter stake change. Distinguish conviction from speculation.",
+  "sectoral_macro": "Sector-specific context using the lens above — policy, peers, commodity, regulatory backdrop directly relevant to this move.",
+  "corporate_actions": "Specific announcements — dividends, buybacks, order wins, M&A, QIP, management change — that are direct triggers. Cite dates and amounts.",
+  "narrative_shift": "What do institutions now believe about this company that they didn't 6-12 months ago? What story changed?",
+  "risks": "Top 2-3 specific, sector-relevant risks that could invalidate this thesis. Be concrete — not generic.",
+  "analyst_verdict": "JUSTIFIED or EXCESSIVE. State conviction (High/Medium/Low) and the single most important reason for your verdict.",
+  "summary": "Complete this: The stock is at a {level} primarily because ___."
 }}"""
 
     last_err = ""
     try:
-        client   = _OpenAI(
+        client = _OpenAI(
             api_key=_OPENAI_KEY,
             base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
         )
-        # Groq's llama models support json_object mode; OpenAI always does
-        kwargs: dict = {"temperature": 0.3}
-        if _LLM_PROVIDER != "groq" or "llama" in _OPENAI_MODEL:
-            kwargs["response_format"] = {"type": "json_object"}
+        kwargs: dict = {"temperature": 0.2}
+        # json_object mode works on llama/deepseek models on Groq and all OpenAI models
+        kwargs["response_format"] = {"type": "json_object"}
         response = client.chat.completions.create(
             model=_OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             **kwargs,
         )
         raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if model returns them
+        # Strip DeepSeek R1 internal thinking tags if present
+        if "<think>" in raw:
+            import re as _re
+            raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
+        # Strip markdown code fences
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
         result = json.loads(raw.strip())
-        # ✅ Only cache on success — errors are never stored
         st.session_state[cache_key] = result
         return result
     except Exception as e:
         last_err = str(e)
 
-    # Return fallback but do NOT cache it — next click will retry fresh
     return _fallback_deep_dive(ticker, company, sector, signal,
                                price, high52, low52, pct_from_high,
                                pct_from_low, vsurge, pe, dcf_upside,
@@ -1676,8 +1773,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     headlines_str = (" | ".join(str(h) for h in headlines_raw[:5])
                      if headlines_raw else "No recent headlines available.")
 
-    # ── Fetch all data sources in parallel display ────────────────────────────
-    src_col1, src_col2, src_col3 = st.columns(3)
+    # ── Fetch all data sources ────────────────────────────────────────────────
+    src_col1, src_col2, src_col3, src_col4 = st.columns(4)
 
     with src_col1:
         with st.spinner("FMP: fetching fundamentals…"):
@@ -1693,7 +1790,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             fred_ctx = build_fred_context() if _FRED_OK else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if fred_ctx else "#F0B429"};">'
-            f'{"✅ FRED macro loaded" if fred_ctx else "⚠️ FRED unavailable (add FRED_API_KEY)"}</div>',
+            f'{"✅ FRED macro loaded" if fred_ctx else "⚠️ FRED unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1703,6 +1800,15 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if india_ctx else "#F0B429"};">'
             f'{"✅ India macro + FII/DII loaded" if india_ctx else "⚠️ India macro unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with src_col4:
+        with st.spinner("NSE: fetching stock-level signals…"):
+            nse_bse_ctx = build_nse_bse_context(ticker) if _NSE_BSE_OK else ""
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if nse_bse_ctx else "#F0B429"};">'
+            f'{"✅ Delivery/F&O/Deals/Holdings loaded" if nse_bse_ctx else "⚠️ NSE stock data unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -1718,6 +1824,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             fmp_context=fmp_ctx,
             fred_context=fred_ctx,
             india_macro_context=india_ctx,
+            nse_bse_context=nse_bse_ctx,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────
@@ -1760,25 +1867,44 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
-    # ── 7 sections in 2-column grid ───────────────────────────────────────────
+    # ── Analyst verdict banner ────────────────────────────────────────────────
+    verdict = analysis.get("analyst_verdict", "")
+    if verdict:
+        is_justified = "JUSTIFIED" in verdict.upper()
+        v_color  = "#3FB950" if is_justified else "#F0B429"
+        v_bg     = "#0d2618"  if is_justified else "#2a1a00"
+        v_label  = "✅ JUSTIFIED MOVE" if is_justified else "⚠️ EXCESSIVE / FLOW-DRIVEN"
+        st.markdown(
+            f'<div style="background:{v_bg};border:1px solid {v_color};'
+            f'border-radius:8px;padding:14px 20px;margin-bottom:16px;">'
+            f'<span style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:{v_color};">{v_label}</span>'
+            f'<div style="font-size:13px;color:#E6EDF3;margin-top:6px;line-height:1.6;">'
+            f'{verdict}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── 8 sections in 2-column grid ───────────────────────────────────────────
     left, right = st.columns(2)
     with left:
-        _section_card("📊", "1. Recent Price Action",
-                      analysis.get("price_action", "—"), _BLUE)
+        _section_card("🎯", "1. Primary Catalyst",
+                      analysis.get("primary_catalyst", "—"), accent)
         _section_card("⚡", "2. Fundamental Catalysts",
-                      analysis.get("fundamental_catalysts", "—"), accent)
-        _section_card("🏛", "3. Sectoral & Macro Tailwinds",
+                      analysis.get("fundamental_catalysts", "—"), _BLUE)
+        _section_card("🏛", "3. Sectoral & Macro Context",
                       analysis.get("sectoral_macro", "—"), _YELLOW)
         _section_card("🔔", "4. Corporate Actions & Events",
                       analysis.get("corporate_actions", "—"), "#A371F7")
 
     with right:
-        _section_card("💬", "5. Narrative Shift",
+        _section_card("🏦", "5. Institutional Footprint",
+                      analysis.get("institutional_footprint", "—"), "#3FB950")
+        _section_card("💬", "6. Narrative Shift",
                       analysis.get("narrative_shift", "—"), "#58A6FF")
-        _section_card("🌊", "6. Technical & Flow Factors",
-                      analysis.get("flow_factors", "—"), "#3FB950")
-        _section_card("⚠", "7. Risks to the Rally" if is_hi else "7. Risks & Recovery Triggers",
+        _section_card("⚠", "7. Risks" + (" to the Rally" if is_hi else " & Recovery Triggers"),
                       analysis.get("risks", "—"), _RED)
+        _section_card("📰", "8. What Changed — Latest News",
+                      analysis.get("corporate_actions", "—"), _MUTED)
 
     # ── Full Google News feed ─────────────────────────────────────────────────
     st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
