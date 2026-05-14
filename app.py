@@ -2074,3 +2074,166 @@ def _render_sidebar() -> dict:
         auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
 
         # ── Run stats ────────────────────────────────────────────────
+
+        # ── Run stats ─────────────────────────────────────────────────────
+        if "screen_results" in st.session_state:
+            res = st.session_state["screen_results"]
+            n_h = len(res.get("highs", pd.DataFrame()))
+            n_l = len(res.get("lows",  pd.DataFrame()))
+            n_e = len(res.get("errors", []))
+            is_mock = res.get("is_mock", False)
+            ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
+
+            _mock_div = "<div style='color:#D29922;font-size:11px;margin-top:4px;'>★ Mock data</div>" if is_mock else ""
+            st.markdown(
+                f'<div style="background:{_CARD};border:1px solid #21262D;'
+                f'border-radius:6px;padding:12px 14px;font-size:12px;">'
+                f'<div style="font-size:10px;font-weight:700;color:{_MUTED};'
+                f'letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Last Run</div>'
+                f'<div style="color:{_GREEN}">&#8679; {n_h} Breakout High</div>'
+                f'<div style="color:{_RED}">&#8681; {n_l} Breakdown Low</div>'
+                f'<div style="color:{_MUTED}">&#9888; {n_e} Ticker Errors</div>'
+                f'<div style="color:{_MUTED};margin-top:4px;">&#9201; {ts}</div>'
+                f'{_mock_div}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    params = {
+        "threshold":   threshold,
+        "vol_surge":   vol_surge,
+        "window":      window,
+        "wacc":        wacc,
+        "term_growth": term_growth,
+        "universe":    universe,
+        "custom_txt":  custom_txt,
+        "run":         run,
+        "auto_refresh":auto_refresh,
+    }
+    return params
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 10.  MAIN
+# ══════════════════════════════════════════════════════════════════════════════
+def main():
+    # ── Inject styles ─────────────────────────────────────────────────────
+    st.markdown(_CSS, unsafe_allow_html=True)
+
+    # ── Ticker tape ────────────────────────────────────────────────────────
+    _render_tape()
+
+    # ── App header ──────────────────────────────────────────────────────────
+    _render_header()
+
+    # ── Sidebar (returns param dict) ──────────────────────────────────────────
+    p = _render_sidebar()
+
+    # ── Spacing ───────────────────────────────────────────────────────────────
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    # ── Index cards ────────────────────────────────────────────────────────
+    _render_index_cards()
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    # ── Auto-refresh (clears cached index/tape data, re-runs every 60 s) ─────
+    if p["auto_refresh"]:
+        _fetch_index_data.clear()
+        _fetch_tape_data.clear()
+
+    # ── Build ticker list ───────────────────────────────────────────────────
+    if p["universe"] == "Nifty 50 only":
+        tickers = _NIFTY_50
+    elif p["universe"] == "Custom" and p["custom_txt"].strip():
+        tickers = [t.strip() for t in p["custom_txt"].splitlines() if t.strip()]
+    else:
+        tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
+
+    # ── Run screen (on button click OR first page load) ────────────────────
+    if p["run"] or "screen_results" not in st.session_state:
+        with st.spinner(
+            f"Screening **{len(tickers)} stocks** via NSE live feed… "
+            "Usually completes in under a minute."
+        ):
+            results = _run_screen(tickers, p)
+    else:
+        results = st.session_state["screen_results"]
+
+    if not results:
+        st.markdown(
+            '<div style="text-align:center;padding:60px;color:#484F58;">'
+            '<div style="font-size:40px;">📊</div>'
+            '<div style="font-size:16px;margin-top:12px;">Press <b>▶ Run Screen</b> in the sidebar to start.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    highs_df = results.get("highs", pd.DataFrame())
+    lows_df  = results.get("lows",  pd.DataFrame())
+    errors   = results.get("errors", [])
+    is_mock  = results.get("is_mock", False)
+
+    # Mock data banner
+    if is_mock:
+        st.warning(
+            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
+            "Install dependencies and ensure `engine.py` is in the same folder.",
+            icon="⚠",
+        )
+
+    # ── Section header ────────────────────────────────────────────────────
+    st.markdown(
+        f'<div class="sec-hdr" style="margin-top:8px;">'
+        f'&#9670; Today\'s Signals &nbsp;'
+        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
+        f'&nbsp;&nbsp;'
+        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Tabs ──────────────────────────────────────────────────────────────────
+    t_hi, t_lo, t_err = st.tabs([
+        f"▲  Breakout Highs  ({len(highs_df)})",
+        f"▼  Breakdown Lows  ({len(lows_df)})",
+        f"⚠  Errors  ({len(errors)})",
+    ])
+
+    # ── HIGHS TAB ─────────────────────────────────────────────────────────────
+    with t_hi:
+        selected_hi = _render_signals_table(highs_df, key="hi")
+        if selected_hi and not highs_df.empty:
+            mask = highs_df["ticker"] == selected_hi
+            if mask.any():
+                row = highs_df[mask].iloc[0].to_dict()
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                _render_spotlight(selected_hi, row, p)
+
+    # ── LOWS TAB ──────────────────────────────────────────────────────────────
+    with t_lo:
+        selected_lo = _render_signals_table(lows_df, key="lo")
+        if selected_lo and not lows_df.empty:
+            mask = lows_df["ticker"] == selected_lo
+            if mask.any():
+                row = lows_df[mask].iloc[0].to_dict()
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                _render_spotlight(selected_lo, row, p)
+
+    # ── ERRORS TAB ────────────────────────────────────────────────────────────
+    with t_err:
+        if not errors:
+            st.success("✅ No errors in the last run — all tickers processed cleanly.")
+        else:
+            err_df = pd.DataFrame(errors)
+            st.dataframe(err_df, use_container_width=True)
+
+    # ── Auto-refresh sleep + rerun ────────────────────────────────────────────
+    if p["auto_refresh"]:
+        time.sleep(60)
+        st.rerun()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    main()
