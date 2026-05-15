@@ -2483,4 +2483,77 @@ def main():
             f"Screening **{len(tickers)} stocks** via NSE live feed… "
             "Usually completes in under a minute."
         ):
-            res
+            results = _run_screen(tickers, p)
+    else:
+        results = st.session_state["screen_results"]
+
+    if not results:
+        st.markdown(
+            '<div style="text-align:center;padding:60px;color:#484F58;">'
+            '<div style="font-size:40px;">📊</div>'
+            '<div style="font-size:16px;margin-top:12px;">Press <b>▶ Run Screen</b> in the sidebar to start.</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    highs_df = results.get("highs", pd.DataFrame())
+    lows_df  = results.get("lows",  pd.DataFrame())
+    errors   = results.get("errors", [])
+    is_mock  = results.get("is_mock", False)
+
+    if is_mock:
+        st.warning(
+            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
+            "Install dependencies and ensure `engine.py` is in the same folder.",
+            icon="⚠",
+        )
+
+    st.markdown(
+        f'<div class="sec-hdr" style="margin-top:8px;">'
+        f'&#9670; Today\'s Signals &nbsp;'
+        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
+        f'&nbsp;&nbsp;'
+        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    t_hi, t_lo, t_err = st.tabs([
+        f"▲  Breakout Highs  ({len(highs_df)})",
+        f"▼  Breakdown Lows  ({len(lows_df)})",
+        f"⚠  Errors  ({len(errors)})",
+    ])
+
+    with t_hi:
+        selected_hi = _render_signals_table(highs_df, key="hi")
+        if selected_hi and not highs_df.empty:
+            mask = highs_df["ticker"] == selected_hi
+            if mask.any():
+                row = highs_df[mask].iloc[0].to_dict()
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                _render_spotlight(selected_hi, row, p)
+
+    with t_lo:
+        selected_lo = _render_signals_table(lows_df, key="lo")
+        if selected_lo and not lows_df.empty:
+            mask = lows_df["ticker"] == selected_lo
+            if mask.any():
+                row = lows_df[mask].iloc[0].to_dict()
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                _render_spotlight(selected_lo, row, p)
+
+    with t_err:
+        if not errors:
+            st.success("✅ No errors in the last run — all tickers processed cleanly.")
+        else:
+            err_df = pd.DataFrame(errors)
+            st.dataframe(err_df, use_container_width=True)
+
+    if p["auto_refresh"]:
+        time.sleep(60)
+        st.rerun()
+
+
+if __name__ == "__main__":
+    main()
