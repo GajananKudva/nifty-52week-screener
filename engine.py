@@ -794,4 +794,7 @@ class DataEngine:
             "ticker": ticker,
             "step":   step,
             "error":  str(exc),
+            "time":   datetime.now().isoformat(timespec="seconds"),
+        })
+
    
