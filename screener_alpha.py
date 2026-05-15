@@ -91,7 +91,7 @@ def build_screener_context(symbol: str) -> str:
         return ""
 
     try:
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(resp.text, "html.parser")  # built-in parser, no lxml needed
     except Exception:
         return ""
 
@@ -373,4 +373,4 @@ def build_alpha_vantage_context(symbol: str, api_key: str) -> str:
                 lines.append("  " + " | ".join(parts))
 
     result = "\n".join(lines)
-    return result if len(result) > 80 else ""
+    return 
