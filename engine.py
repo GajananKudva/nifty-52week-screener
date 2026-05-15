@@ -96,7 +96,7 @@ class DataEngine:
                 logger.warning(f"{ticker}: Empty price history — skipping.")
                 return None
 
-            # ── Flatten MultiIndex columns (critical for yfinance ≥ 0.2) ─────
+            # ── Flatten MultiIndex columns (critical for yfinance >= 0.2) ─────
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
@@ -311,9 +311,9 @@ class DataEngine:
           Terminal : Gordon Growth Model perpetuity
 
         Growth rate is estimated conservatively by market-cap tier:
-          Large-cap  (>$100B)  →  8%
-          Mid-cap   ($10–100B) → 12%
-          Small-cap  (<$10B)   → 15%
+          Large-cap  (>$100B)  ->  8%
+          Mid-cap   ($10-100B) -> 12%
+          Small-cap  (<$10B)   -> 15%
 
         Returns a dict with intrinsic_value, upside_downside_pct, and
         the assumed Stage-1 growth rate. All None if FCF/shares unavailable.
@@ -392,10 +392,10 @@ class DataEngine:
         Returns
         -------
         dict with keys:
-          'highs'       – DataFrame of BREAKOUT_HIGH stocks (volume confirmed)
-          'lows'        – DataFrame of BREAKDOWN_LOW  stocks (volume confirmed)
-          'all_flagged' – Combined flagged DataFrame
-          'errors'      – List of error dicts for the run log
+          'highs'       - DataFrame of BREAKOUT_HIGH stocks (volume confirmed)
+          'lows'        - DataFrame of BREAKDOWN_LOW  stocks (volume confirmed)
+          'all_flagged' - Combined flagged DataFrame
+          'errors'      - List of error dicts for the run log
         """
         tickers = self.config.tickers
         logger.info(f"Starting universe screen | {len(tickers)} tickers")
@@ -413,7 +413,7 @@ class DataEngine:
 
             # ── Rate limiting ─────────────────────────────────────────────────
             if idx > 0 and idx % batch_size == 0:
-                logger.info(f"  Batch pause after {idx} tickers (2 s) …")
+                logger.info(f"  Batch pause after {idx} tickers (2 s) ...")
                 time.sleep(2.0)
             else:
                 time.sleep(sleep_short)
@@ -428,7 +428,7 @@ class DataEngine:
             if signals is None:
                 continue
 
-            # ── Step 3 : Fundamentals + News + DCF (flagged stocks only) ────────
+            # ── Step 3 : Fundamentals + News + DCF (flagged stocks only) ─────
             if signals["signal"] is not None:
                 time.sleep(sleep_short)
                 fundamentals = self.fetch_fundamentals(ticker)
@@ -464,7 +464,7 @@ class DataEngine:
 
             if signals["signal"]:
                 logger.info(
-                    f"  ✓ {signals['signal']} | VolSurge={signals['volume_surge']:.2f}x"
+                    f"  signal={signals['signal']} | VolSurge={signals['volume_surge']:.2f}x"
                     f" | DCF upside={record.get('upside_downside_pct')}%"
                 )
 
@@ -512,7 +512,7 @@ class DataEngine:
 
         - Selects and orders display columns
         - Rounds all numeric fields to 2 d.p.
-        - Converts NaN → None so Jinja2 can use the `if` guard cleanly
+        - Converts NaN -> None so Jinja2 can use the `if` guard cleanly
         - Returns a list of plain dicts
         """
         if df is None or df.empty:
@@ -543,7 +543,7 @@ class DataEngine:
             if col in out.columns:
                 out[col] = pd.to_numeric(out[col], errors="coerce").round(2)
 
-        # NaN → None for clean Jinja2 handling
+        # NaN -> None for clean Jinja2 handling
         out = out.where(pd.notnull(out), None)
 
         return out.to_dict(orient="records")
@@ -559,7 +559,7 @@ class DataEngine:
             raw_news = yf.Ticker(ticker).news or []
             headlines = []
             for item in raw_news[:max_items]:
-                # yfinance ≥ 0.2.50 nests content inside a 'content' key
+                # yfinance >= 0.2.50 nests content inside a 'content' key
                 if isinstance(item, dict) and "content" in item:
                     item = item["content"]
                 title     = item.get("title", "").strip()
@@ -578,8 +578,9 @@ class DataEngine:
 
         Phase 1 (fast):
           - Accepts the list returned by nse_bse.get_nse_index_live()
-          - Uses NSE's pre-calculated nearWKH / nearWKL to filter candidates
-            in a single pass — no yfinance calls needed yet.
+          - Uses NSE near_wkh / near_wkl to pre-filter candidates.
+          - Falls back to computing proximity from last_price/year_high/year_low
+            when nearWKH/nearWKL are not populated by the NSE API.
 
         Phase 2 (targeted):
           - For each candidate, fetches only 30-days of yfinance history
@@ -599,11 +600,31 @@ class DataEngine:
             f"threshold={threshold_pct:.1f}%"
         )
 
-        # ── Phase 1: threshold filter using NSE nearWKH / nearWKL ────────────
+        # ── Phase 1: threshold filter ─────────────────────────────────────────
         candidates: list[dict] = []
         for s in nse_stocks:
             wkh = s.get("near_wkh")
             wkl = s.get("near_wkl")
+
+            # Fallback: compute from last_price / year_high / year_low
+            # when NSE does not populate the nearWKH / nearWKL fields
+            lp = s.get("last_price")
+            yh = s.get("year_high")
+            yl = s.get("year_low")
+            try:
+                lp_f = float(lp) if lp is not None else None
+                yh_f = float(yh) if yh is not None else None
+                yl_f = float(yl) if yl is not None else None
+            except (TypeError, ValueError):
+                lp_f = yh_f = yl_f = None
+
+            if wkh is None and lp_f and yh_f and yh_f > 0:
+                wkh = (yh_f - lp_f) / yh_f * 100
+                s["near_wkh"] = wkh
+            if wkl is None and lp_f and yl_f and yl_f > 0:
+                wkl = (lp_f - yl_f) / yl_f * 100
+                s["near_wkl"] = wkl
+
             is_near_high = wkh is not None and wkh <= threshold_pct
             is_near_low  = wkl is not None and wkl <= threshold_pct
             if is_near_high or is_near_low:
@@ -664,7 +685,7 @@ class DataEngine:
 
             volume_surge = current_vol / avg_vol_20d
 
-            # ── Determine signal from NSE near_wkh / near_wkl ────────────────
+            # ── Determine signal ──────────────────────────────────────────────
             near_wkh = s.get("near_wkh", 999.0)
             near_wkl = s.get("near_wkl", 999.0)
             vol_ok   = volume_surge >= self.config.volume_surge_threshold
@@ -705,7 +726,7 @@ class DataEngine:
                 "ticker":        ticker,
                 "company_name":  s.get("company_name") or ticker,
                 "sector":        s.get("sector") or None,
-                "industry":      s.get("sector") or None,   # NSE gives "industry" as sector
+                "industry":      s.get("sector") or None,
                 "current_price": round(current_price, 2),
                 "week_52_high":  round(year_high, 2),
                 "week_52_low":   round(year_low, 2),
@@ -723,7 +744,7 @@ class DataEngine:
             # ── Fundamentals + news + DCF only for confirmed signals ──────────
             if signal is not None:
                 time.sleep(sleep_short)
-                fundamentals  = self.fetch_fundamentals(ticker)
+                fundamentals   = self.fetch_fundamentals(ticker)
                 news_headlines = self.fetch_news(ticker)
                 dcf            = self.calculate_dcf(ticker, current_price, fundamentals)
 
@@ -738,8 +759,8 @@ class DataEngine:
                                "news_headlines": news_headlines})
 
                 logger.info(
-                    f"  ✓ {signal} | VolSurge={volume_surge:.2f}x "
-                    f"| nearWKH={near_wkh}% nearWKL={near_wkl}%"
+                    f"  signal={signal} | VolSurge={volume_surge:.2f}x "
+                    f"| nearWKH={near_wkh:.2f}% nearWKL={near_wkl:.2f}%"
                     f"| DCF upside={record.get('upside_downside_pct')}%"
                 )
             else:
