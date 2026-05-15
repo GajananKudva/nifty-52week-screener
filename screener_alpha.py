@@ -247,35 +247,48 @@ _AV_BASE = "https://www.alphavantage.co/query"
 
 
 def _av_get(function: str, symbol: str, api_key: str, **extra) -> Optional[dict]:
-    """Fetch one Alpha Vantage endpoint. Returns parsed JSON or None."""
-    params = {"function": function, "symbol": symbol, "apikey": api_key, **extra}
-    try:
-        r = requests.get(_AV_BASE, params=params, timeout=12)
-        if r.status_code == 200:
+    """
+    Fetch one Alpha Vantage endpoint. Returns parsed JSON or None.
+    Automatically retries with .BSE suffix if bare symbol returns no data
+    (Alpha Vantage requires SYMBOL.BSE format for Indian equities).
+    """
+    def _fetch(sym: str) -> Optional[dict]:
+        params = {"function": function, "symbol": sym, "apikey": api_key, **extra}
+        try:
+            r = requests.get(_AV_BASE, params=params, timeout=12)
+            if r.status_code != 200:
+                return None
             data = r.json()
-            # AV returns {"Information": "..."} when rate-limited
+            # Rate-limit / info messages — not real data
             if "Information" in data or "Note" in data:
                 return None
+            # Empty response
+            if not data or data == {}:
+                return None
             return data
-    except Exception:
-        pass
-    return None
+        except Exception:
+            return None
+
+    result = _fetch(symbol)
+    # If bare symbol returned nothing and it's not already suffixed, try .BSE
+    if result is None and not symbol.endswith((".BSE", ".NSE")):
+        result = _fetch(symbol + ".BSE")
+    return result
 
 
 def build_alpha_vantage_context(symbol: str, api_key: str) -> str:
     """
-    Pull company overview, EPS surprises, and earnings calendar from
+    Pull company overview, EPS surprises, and income statement from
     Alpha Vantage and return a structured text block for the AI prompt.
 
     Alpha Vantage free tier: 25 req/day, 5 req/min — we make ≤3 calls.
-    The NSE symbol (without .NS) maps to AV's BSE-listed symbol as-is for
-    most large-cap Nifty 500 companies.
+    Indian stocks require SYMBOL.BSE format — _av_get handles this automatically.
     """
     if not api_key:
         return ""
 
     clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
-    # Alpha Vantage uses BSE/NSE symbol directly for Indian stocks
+    # _av_get will auto-retry with .BSE suffix if needed
     av_sym = clean_sym
 
     lines: list[str] = [f"=== Alpha Vantage: {clean_sym} ==="]
@@ -373,4 +386,4 @@ def build_alpha_vantage_context(symbol: str, api_key: str) -> str:
                 lines.append("  " + " | ".join(parts))
 
     result = "\n".join(lines)
-    return 
+    return result if len(result) > 80 else ""
