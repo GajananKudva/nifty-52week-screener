@@ -796,5 +796,3 @@ class DataEngine:
             "error":  str(exc),
             "time":   datetime.now().isoformat(timespec="seconds"),
         })
-
-   
