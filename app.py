@@ -139,7 +139,8 @@ except ImportError:
     def build_yfinance_context(_sym: str) -> str:       # type: ignore[misc]
         return ""
 
-_TAVILY_KEY = _secret("TAVILY_API_KEY", "")
+_TAVILY_KEY   = _secret("TAVILY_API_KEY", "")
+_NEWSAPI_KEY  = _secret("NEWSAPI_KEY", "")
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1444,55 +1445,172 @@ def _fallback_deep_dive(ticker, company, sector, signal,
     }
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
-def _fetch_google_news(company: str, ticker: str) -> list[dict]:
+def _parse_rss_feed(url: str, company: str, ticker: str,
+                    source_name: str, max_items: int = 8) -> list[dict]:
     """
-    Fetch recent news for a company via Google News RSS (no API key needed).
-    Returns list of dicts: {title, link, source, published, summary}
+    Parse an RSS feed and return articles mentioning the company/ticker.
+    Filters by company name or ticker symbol appearing in title or summary.
     """
-    # Build two queries — one by company name, one by ticker (without .NS)
-    clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
-    query        = f'"{company}" OR "{clean_ticker}" stock India'
-    encoded      = urllib.parse.quote(query)
-    url          = (
-        f"https://news.google.com/rss/search"
-        f"?q={encoded}&hl=en-IN&gl=IN&ceid=IN:en"
-    )
+    clean_ticker = ticker.replace(".NS", "").replace(".BO", "").lower()
+    company_words = [w.lower() for w in company.split() if len(w) > 3]
 
+    def _mentions(text: str) -> bool:
+        t = text.lower()
+        return clean_ticker in t or any(w in t for w in company_words[:3])
+
+    results = []
     try:
-        feed    = feedparser.parse(url)
-        results = []
-        for entry in feed.entries[:15]:   # cap at 15 articles
-            # Parse publish date
+        feed = feedparser.parse(url)
+        for entry in feed.entries:
+            title   = entry.get("title", "")
+            summary = re.sub(r"<[^>]+>", "", entry.get("summary", "")).strip()
+            if not _mentions(title) and not _mentions(summary):
+                continue
             pub = ""
             try:
                 dt  = parsedate_to_datetime(entry.get("published", ""))
                 pub = dt.strftime("%d %b %Y, %I:%M %p")
             except Exception:
-                pub = entry.get("published", "")
-
-            # Strip HTML tags from summary
-            raw_summary = entry.get("summary", "")
-            clean_summary = re.sub(r"<[^>]+>", "", raw_summary).strip()
-
-            # Source is usually inside the title as "Headline - Source"
-            title  = entry.get("title", "")
-            source = ""
-            if " - " in title:
-                parts  = title.rsplit(" - ", 1)
-                title  = parts[0].strip()
-                source = parts[1].strip()
-
+                pub = entry.get("published", "")[:16]
             results.append({
                 "title":     title,
                 "link":      entry.get("link", "#"),
-                "source":    source,
+                "source":    source_name,
                 "published": pub,
-                "summary":   clean_summary[:220] + "…" if len(clean_summary) > 220 else clean_summary,
+                "published_dt": entry.get("published", ""),
+                "summary":   summary[:220] + "…" if len(summary) > 220 else summary,
+            })
+            if len(results) >= max_items:
+                break
+    except Exception:
+        pass
+    return results
+
+
+@st.cache_data(ttl=600, show_spinner=False)   # 10 min — live Indian financial RSS
+def _fetch_indian_rss(company: str, ticker: str) -> list[dict]:
+    """
+    Fetch live news from ET Markets, Moneycontrol, and Business Standard RSS feeds.
+    Filters articles that mention the company name or ticker.
+    Updates every 5-15 minutes — far fresher than Google News RSS.
+    """
+    feeds = [
+        ("https://economictimes.indiatimes.com/markets/stocks/rss.cms",
+         "Economic Times"),
+        ("https://economictimes.indiatimes.com/markets/rss.cms",
+         "ET Markets"),
+        ("https://www.moneycontrol.com/rss/marketsnews.xml",
+         "Moneycontrol"),
+        ("https://www.moneycontrol.com/rss/MCtopnews.xml",
+         "Moneycontrol"),
+        ("https://www.business-standard.com/rss/markets-106.rss",
+         "Business Standard"),
+        ("https://www.business-standard.com/rss/companies-101.rss",
+         "Business Standard"),
+        ("https://www.livemint.com/rss/markets",
+         "Livemint"),
+    ]
+    all_articles: list[dict] = []
+    seen_titles: set[str] = set()
+    for url, source in feeds:
+        arts = _parse_rss_feed(url, company, ticker, source, max_items=5)
+        for a in arts:
+            key = a["title"][:60].lower()
+            if key not in seen_titles:
+                seen_titles.add(key)
+                all_articles.append(a)
+    # Sort newest first (best-effort — RSS published strings vary)
+    all_articles.sort(key=lambda x: x.get("published_dt", ""), reverse=True)
+    return all_articles[:15]
+
+
+@st.cache_data(ttl=900, show_spinner=False)   # 15 min — conserves 100 req/day quota
+def _fetch_newsapi(company: str, ticker: str, api_key: str) -> list[dict]:
+    """
+    Search NewsAPI.org for the company across Indian financial outlets.
+    Returns structured, date-sorted articles — the most accurate company-specific feed.
+    Free tier: 100 req/day.
+    """
+    if not api_key:
+        return []
+    clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
+    try:
+        import requests as _req
+        resp = _req.get(
+            "https://newsapi.org/v2/everything",
+            params={
+                "q":        f'"{company}" OR "{clean_ticker}"',
+                "apiKey":   api_key,
+                "language": "en",
+                "sortBy":   "publishedAt",
+                "pageSize": 12,
+                "domains":  (
+                    "economictimes.indiatimes.com,moneycontrol.com,"
+                    "livemint.com,business-standard.com,"
+                    "financialexpress.com,ndtvprofit.com,"
+                    "reuters.com,bloomberg.com,thehindu.com"
+                ),
+            },
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        articles = data.get("articles", [])
+        results = []
+        for art in articles:
+            # Parse ISO date → readable
+            pub_raw = art.get("publishedAt", "")
+            try:
+                from datetime import timezone
+                dt  = datetime.strptime(pub_raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                pub = dt.strftime("%d %b %Y, %I:%M %p") + " UTC"
+            except Exception:
+                pub = pub_raw[:10]
+            source = art.get("source", {}).get("name", "")
+            desc   = (art.get("description") or art.get("content") or "").strip()
+            desc   = re.sub(r"\[\+\d+ chars\]$", "", desc).strip()
+            results.append({
+                "title":        art.get("title", ""),
+                "link":         art.get("url", "#"),
+                "source":       source,
+                "published":    pub,
+                "published_dt": pub_raw,
+                "summary":      desc[:220] + "…" if len(desc) > 220 else desc,
             })
         return results
     except Exception:
         return []
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_live_news(company: str, ticker: str) -> list[dict]:
+    """
+    Master news fetcher — merges NewsAPI + Indian RSS (ET/MC/BS/Mint).
+    NewsAPI results go first (most accurate company match).
+    Indian RSS fills in additional coverage.
+    Deduplicates by title. Sorted newest first.
+    """
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    # 1. NewsAPI — best quality, company-searched
+    for art in _fetch_newsapi(company, ticker, _NEWSAPI_KEY):
+        key = art["title"][:60].lower()
+        if key not in seen:
+            seen.add(key)
+            results.append(art)
+
+    # 2. Indian RSS feeds — live market feeds filtered by company name
+    for art in _fetch_indian_rss(company, ticker):
+        key = art["title"][:60].lower()
+        if key not in seen:
+            seen.add(key)
+            results.append(art)
+
+    # Sort newest first
+    results.sort(key=lambda x: x.get("published_dt", ""), reverse=True)
+    return results[:20]
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -1578,12 +1696,15 @@ def _render_news_feed(company: str, ticker: str, accent: str):
     st.markdown(
         f'<div style="font-size:10px;font-weight:700;letter-spacing:2px;'
         f'text-transform:uppercase;color:{_MUTED};padding:10px 0 10px;">'
-        f'&#128240;&nbsp;&nbsp;Latest News — {company}</div>',
+        f'&#128240;&nbsp;&nbsp;Live News — {company}'
+        f'<span style="font-weight:400;letter-spacing:0;margin-left:10px;'
+        f'color:#484F58;font-size:9px;">NewsAPI · ET Markets · Moneycontrol · Business Standard</span>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
-    with st.spinner("Fetching latest news…"):
-        articles = _fetch_google_news(company, ticker)
+    with st.spinner("Fetching live news from ET, Moneycontrol, BSE, NewsAPI…"):
+        articles = _fetch_live_news(company, ticker)
 
     if not articles:
         st.info("No recent news found for this company.")
@@ -2005,9 +2126,9 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    # ── Fetch Google News (always — also used for news feed section below) ────
-    with st.spinner("Fetching Google News feed…"):
-        gn_articles = _fetch_google_news(name, ticker)
+    # ── Fetch live news (NewsAPI + ET/MC/BS RSS — also used for news feed below) ─
+    with st.spinner("Fetching live news (NewsAPI + ET · MC · BS)…"):
+        gn_articles = _fetch_live_news(name, ticker)
     gn_context = ""
     if gn_articles:
         lines = []
@@ -2154,7 +2275,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 unsafe_allow_html=True)
 
     with st.spinner("Building PDF report…"):
-        articles   = _fetch_google_news(name, ticker)   # already cached
+        articles   = _fetch_live_news(name, ticker)   # already cached
         pdf_bytes  = _build_pdf_report(
             ticker   = ticker,
             company  = name,
@@ -2362,83 +2483,4 @@ def main():
             f"Screening **{len(tickers)} stocks** via NSE live feed… "
             "Usually completes in under a minute."
         ):
-            results = _run_screen(tickers, p)
-    else:
-        results = st.session_state["screen_results"]
-
-    if not results:
-        st.markdown(
-            '<div style="text-align:center;padding:60px;color:#484F58;">'
-            '<div style="font-size:40px;">📊</div>'
-            '<div style="font-size:16px;margin-top:12px;">Press <b>▶ Run Screen</b> in the sidebar to start.</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        return
-
-    highs_df = results.get("highs", pd.DataFrame())
-    lows_df  = results.get("lows",  pd.DataFrame())
-    errors   = results.get("errors", [])
-    is_mock  = results.get("is_mock", False)
-
-    # Mock data banner
-    if is_mock:
-        st.warning(
-            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
-            "Install dependencies and ensure `engine.py` is in the same folder.",
-            icon="⚠",
-        )
-
-    # ── Section header ────────────────────────────────────────────────────────────────────────────────────
-    st.markdown(
-        f'<div class="sec-hdr" style="margin-top:8px;">'
-        f'&#9670; Today\'s Signals &nbsp;'
-        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
-        f'&nbsp;&nbsp;'
-        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── Tabs ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    t_hi, t_lo, t_err = st.tabs([
-        f"▲  Breakout Highs  ({len(highs_df)})",
-        f"▼  Breakdown Lows  ({len(lows_df)})",
-        f"⚠  Errors  ({len(errors)})",
-    ])
-
-    # ── HIGHS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    with t_hi:
-        selected_hi = _render_signals_table(highs_df, key="hi")
-        if selected_hi and not highs_df.empty:
-            mask = highs_df["ticker"] == selected_hi
-            if mask.any():
-                row = highs_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_hi, row, p)
-
-    # ── LOWS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
-        if selected_lo and not lows_df.empty:
-            mask = lows_df["ticker"] == selected_lo
-            if mask.any():
-                row = lows_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_lo, row, p)
-
-    # ── ERRORS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-    with t_err:
-        if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
-        else:
-            err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
-
-    # ── Auto-refresh sleep + rerun ────────────────────────────────────────────────────────
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-# ── Entry point ─────────────────────────────────────────────────────────
+            res
