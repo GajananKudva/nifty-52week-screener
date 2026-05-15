@@ -287,6 +287,123 @@ def get_corporate_announcements(symbol: str) -> Optional[list]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 6. Stock-specific FII/DII flows (₹Cr, derived from shareholding × market cap)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def get_fiidii_stock_flows(symbol: str) -> Optional[dict]:
+    """
+    Estimate stock-level FII and DII holding changes in ₹Cr.
+
+    Method:
+      1. Fetch market cap from NSE equity quote API.
+      2. Use latest two quarters of shareholding pattern data.
+      3. Compute ΔHolding % × market cap → approximate ₹Cr change.
+
+    Returns dict with keys: market_cap_cr, latest_quarter, prev_quarter,
+      fii_pct_now, fii_pct_prev, fii_chg_pct, fii_chg_cr,
+      dii_pct_now, dii_pct_prev, dii_chg_pct, dii_chg_cr,
+      interpretation.
+    Returns None on failure or insufficient data.
+    """
+    sym = _clean(symbol)
+    try:
+        s = _session()
+        r = s.get(
+            f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
+            headers=_NSE_HDRS, timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        info     = r.json()
+        price_info = info.get("priceInfo", {})
+        mkt_cap_raw = (
+            (info.get("industryInfo") or {}).get("marketCap")
+            or price_info.get("marketCap")
+        )
+        # Try metadata block
+        if mkt_cap_raw is None:
+            meta_block = info.get("metadata") or info.get("securityInfo") or {}
+            mkt_cap_raw = meta_block.get("marketCap") or meta_block.get("mktCap")
+
+        market_cap_cr: Optional[float] = None
+        if mkt_cap_raw is not None:
+            try:
+                raw_val = float(str(mkt_cap_raw).replace(",", ""))
+                # NSE often returns market cap in ₹ (not Cr); convert
+                market_cap_cr = raw_val / 1e7 if raw_val > 1e9 else raw_val
+            except Exception:
+                pass
+
+        # Fallback: estimate from last price × shares outstanding
+        if market_cap_cr is None:
+            last_price = float(str(price_info.get("lastPrice") or 0).replace(",", "") or 0)
+            shares_raw = (info.get("securityInfo") or {}).get("issuedSize") or 0
+            try:
+                shares = float(str(shares_raw).replace(",", ""))
+                if last_price > 0 and shares > 0:
+                    market_cap_cr = (last_price * shares) / 1e7
+            except Exception:
+                pass
+
+        if market_cap_cr is None or market_cap_cr <= 0:
+            return None
+
+        # Get shareholding pattern (latest 2 quarters)
+        holding = get_promoter_shareholding(symbol)
+        if not holding or len(holding) < 2:
+            return None
+
+        latest = holding[0]
+        prev   = holding[1]
+
+        fii_now  = latest.get("fii_pct")
+        fii_prev = prev.get("fii_pct")
+        dii_now  = latest.get("dii_pct")
+        dii_prev = prev.get("dii_pct")
+
+        if fii_now is None or fii_prev is None:
+            return None
+
+        fii_chg_pct = round(float(fii_now) - float(fii_prev), 2)
+        dii_chg_pct = round(float(dii_now or 0) - float(dii_prev or 0), 2)
+
+        fii_chg_cr = round(fii_chg_pct / 100 * market_cap_cr, 0)
+        dii_chg_cr = round(dii_chg_pct / 100 * market_cap_cr, 0)
+
+        def _interp(chg_cr: float, who: str) -> str:
+            if chg_cr > 500:
+                return f"{who} added heavily (+₹{chg_cr:,.0f}Cr) — strong conviction buying"
+            elif chg_cr > 100:
+                return f"{who} increased stake (+₹{chg_cr:,.0f}Cr) — moderate accumulation"
+            elif chg_cr > 0:
+                return f"{who} marginally increased (+₹{chg_cr:,.0f}Cr)"
+            elif chg_cr < -500:
+                return f"{who} sold heavily (−₹{abs(chg_cr):,.0f}Cr) — significant distribution"
+            elif chg_cr < -100:
+                return f"{who} reduced stake (−₹{abs(chg_cr):,.0f}Cr) — moderate selling"
+            elif chg_cr < 0:
+                return f"{who} marginally reduced (−₹{abs(chg_cr):,.0f}Cr)"
+            return f"{who} holding unchanged"
+
+        return {
+            "market_cap_cr":  round(market_cap_cr, 0),
+            "latest_quarter": latest.get("quarter", ""),
+            "prev_quarter":   prev.get("quarter", ""),
+            "fii_pct_now":    fii_now,
+            "fii_pct_prev":   fii_prev,
+            "fii_chg_pct":    fii_chg_pct,
+            "fii_chg_cr":     fii_chg_cr,
+            "dii_pct_now":    dii_now,
+            "dii_pct_prev":   dii_prev,
+            "dii_chg_pct":    dii_chg_pct,
+            "dii_chg_cr":     dii_chg_cr,
+            "fii_interpretation": _interp(fii_chg_cr, "FII/FPI"),
+            "dii_interpretation": _interp(dii_chg_cr, "DII/MF"),
+        }
+    except Exception:
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Context builder
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -336,130 +453,4 @@ def build_nse_bse_context(symbol: str) -> str:
         for d in (bulk + block)[:8]:
             tag    = "BULK " if d in bulk else "BLOCK"
             client = str(d.get("clientName") or d.get("Client Name") or d.get("client_name") or "?")[:30]
-            side   = str(d.get("buySell") or d.get("buy_sell") or "?")
-            qty    = d.get("quantity") or d.get("Quantity") or "?"
-            price  = d.get("tradePrice") or d.get("Trade Price") or "?"
-            lines.append(f"  {tag} | {client:<30} | {side:<5} | Qty: {_fmt_num(qty)} | ₹{price}")
-    else:
-        lines.append("  No bulk/block deals today")
-
-    # ── Promoter shareholding
-    holding = get_promoter_shareholding(symbol)
-    if holding:
-        any_data = True
-        lines.append("\n[SHAREHOLDING PATTERN — Quarterly Trend]")
-        lines.append(f"  {'Quarter':<14} {'Promoter':>10} {'FII':>8} {'DII':>8} {'Retail':>8}  Trend")
-        prev_promo = None
-        for q in holding:
-            promo  = _fmt_pct(q.get("promoter_pct"))
-            fii    = _fmt_pct(q.get("fii_pct"))
-            dii    = _fmt_pct(q.get("dii_pct"))
-            retail = _fmt_pct(q.get("retail_pct"))
-            trend  = ""
-            if prev_promo is not None and q.get("promoter_pct") is not None:
-                try:
-                    diff  = float(q["promoter_pct"]) - float(prev_promo)
-                    arrow = "↑" if diff > 0 else "↓"
-                    trend = f"  Promoter {arrow}{abs(diff):.2f}% QoQ"
-                except Exception:
-                    pass
-            lines.append(f"  {str(q['quarter']):<14} {promo:>10} {fii:>8} {dii:>8} {retail:>8}{trend}")
-            prev_promo = q.get("promoter_pct")
-
-    # ── Corporate announcements
-    announcements = get_corporate_announcements(symbol)
-    if announcements:
-        any_data = True
-        lines.append("\n[RECENT CORPORATE ANNOUNCEMENTS]")
-        for a in announcements:
-            lines.append(f"  {a['date']:<12} : {a['subject']}")
-
-    lines.append("\n" + "=" * 60)
-    return "\n".join(lines) if any_data else ""
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Bulk live screener — 1 API call for all stocks in a NSE index
-# ──────────────────────────────────────────────────────────────────────────────
-
-_NSE_INDEX_MAP = {
-    "NIFTY 500":    "NIFTY%20500",
-    "NIFTY 50":     "NIFTY%2050",
-    "NIFTY NEXT 50":"NIFTY%20NEXT%2050",
-    "NIFTY 100":    "NIFTY%20100",
-    "NIFTY 200":    "NIFTY%20200",
-    "NIFTY MIDCAP 100": "NIFTY%20MIDCAP%20100",
-    "NIFTY SMALLCAP 100": "NIFTY%20SMALLCAP%20100",
-}
-
-
-def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
-    """
-    Fetch all constituents of a NSE index with live prices and 52-week levels
-    in a single API call.
-
-    Returns a list of dicts with keys:
-      symbol, ticker, company_name, sector,
-      last_price, year_high, year_low,
-      volume, pct_change,
-      near_wkh  (% below 52W high — 0 = at high),
-      near_wkl  (% above 52W low  — 0 = at low)
-
-    Returns empty list on failure.
-    """
-    encoded = _NSE_INDEX_MAP.get(index.upper().strip(),
-                                 index.replace(" ", "%20").upper())
-    try:
-        s = _session()
-        r = s.get(
-            f"https://www.nseindia.com/api/equity-stockIndices?index={encoded}",
-            headers=_NSE_HDRS,
-            timeout=20,
-        )
-        r.raise_for_status()
-        raw_data = r.json().get("data", [])
-    except Exception:
-        return []
-
-    result = []
-    for stock in raw_data:
-        sym = str(stock.get("symbol") or "").strip().upper()
-        if not sym or sym in ("NIFTY 500", "NIFTY 50", "NIFTY 100",
-                              "NIFTY 200", "NIFTY NEXT 50",
-                              "NIFTY MIDCAP 100", "NIFTY SMALLCAP 100"):
-            continue   # skip the index row itself
-
-        meta = stock.get("meta") or {}
-
-        # nearWKH / nearWKL: NSE pre-computes "% away from 52W high/low"
-        # Values are already percentages (e.g. 2.5 means 2.5% away)
-        near_wkh = stock.get("nearWKH")
-        near_wkl = stock.get("nearWKL")
-
-        try:
-            near_wkh = float(near_wkh) if near_wkh is not None else None
-        except (TypeError, ValueError):
-            near_wkh = None
-
-        try:
-            near_wkl = float(near_wkl) if near_wkl is not None else None
-        except (TypeError, ValueError):
-            near_wkl = None
-
-        result.append({
-            "symbol":       sym,
-            "ticker":       f"{sym}.NS",
-            "company_name": (meta.get("companyName") or sym),
-            "sector":       (meta.get("industry") or ""),
-            "last_price":   stock.get("lastPrice"),
-            "year_high":    stock.get("yearHigh"),
-            "year_low":     stock.get("yearLow"),
-            "volume":       stock.get("totalTradedVolume"),
-            "pct_change":   stock.get("pChange"),
-            "near_wkh":     near_wkh,
-            "near_wkl":     near_wkl,
-        })
-
-    return result
-
-
+            side   = str(d.get("b

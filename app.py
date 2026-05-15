@@ -1250,6 +1250,11 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   pct_from_high: float, pct_from_low: float,
                   vsurge: float, pe: float, dcf_upside: float,
                   news_headlines: str,
+                  ret_1m: Optional[float] = None,
+                  ret_3m: Optional[float] = None,
+                  ret_6m: Optional[float] = None,
+                  ret_1y: Optional[float] = None,
+                  price_series: str = "",
                   fmp_context: str = "",
                   fred_context: str = "",
                   india_macro_context: str = "",
@@ -1298,6 +1303,13 @@ MARKET DATA
   Volume Surge  : {vsurge:.1f}x 20-day average
   P/E           : {pe if pe else "N/A"}x
   DCF Upside    : {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+
+TRAILING RETURNS
+  1 Month  : {f"{ret_1m:+.2f}%" if ret_1m is not None else "N/A"}
+  3 Months : {f"{ret_3m:+.2f}%" if ret_3m is not None else "N/A"}
+  6 Months : {f"{ret_6m:+.2f}%" if ret_6m is not None else "N/A"}
+  1 Year   : {f"{ret_1y:+.2f}%" if ret_1y is not None else "N/A"}
+{f"RECENT DAILY CLOSES (last 30 trading days, oldest→newest){chr(10)}  {price_series}" if price_series else ""}
   Recent Headlines: {news_headlines}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1816,6 +1828,21 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
+    # ── Trailing returns from screener row ────────────────────────────────────
+    ret_1m = _safe_float(row.get("ret_1m"))
+    ret_3m = _safe_float(row.get("ret_3m"))
+    ret_6m = _safe_float(row.get("ret_6m"))
+    ret_1y = _safe_float(row.get("ret_1y"))
+
+    # ── 30-day price series from cached OHLCV ─────────────────────────────────
+    price_series = ""
+    ohlcv = _fetch_ohlcv(ticker, period="3mo")
+    if ohlcv is not None and not ohlcv.empty:
+        last30 = ohlcv["Close"].tail(30)
+        price_series = "  ".join(
+            f"₹{v:,.0f}" for v in last30.values
+        )
+
     # ── AI call ───────────────────────────────────────────────────────────────
     headlines_raw = row.get("news_headlines") or []
     headlines_str = (" | ".join(str(h) for h in headlines_raw[:5])
@@ -1869,6 +1896,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             low52=low52 or 0, pct_from_high=pfh, pct_from_low=pfl,
             vsurge=vsurge or 0, pe=pe or 0, dcf_upside=upside or 0,
             news_headlines=headlines_str,
+            ret_1m=ret_1m, ret_3m=ret_3m, ret_6m=ret_6m, ret_1y=ret_1y,
+            price_series=price_series,
             fmp_context=fmp_ctx,
             fred_context=fred_ctx,
             india_macro_context=india_ctx,
@@ -2206,31 +2235,4 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
-    t_hi, t_lo, t_err = st.tabs([
-        f"▲  Breakout Highs  ({len(highs_df)})",
-        f"▼  Breakdown Lows  ({len(lows_df)})",
-        f"⚠  Errors  ({len(errors)})",
-    ])
-
-    # ── HIGHS TAB ─────────────────────────────────────────────────────────────
-    with t_hi:
-        selected_hi = _render_signals_table(highs_df, key="hi")
-        if selected_hi and not highs_df.empty:
-            mask = highs_df["ticker"] == selected_hi
-            if mask.any():
-                row = highs_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_hi, row, p)
-
-    # ── LOWS TAB ──────────────────────────────────────────────────────────────
-    with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
-        if selected_lo and not lows_df.empty:
-            mask = lows_df["ticker"] == selected_lo
-            if mask.any():
-                row = lows_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_lo, row, p)
-
-    # ── ERRORS TAB ─────────────────────────────────�
+    # ── Tabs ───────────────────────────────────────────────────────────────�

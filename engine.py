@@ -215,6 +215,7 @@ class DataEngine:
                 "ret_1m":         trailing_return(21),
                 "ret_3m":         trailing_return(63),
                 "ret_6m":         trailing_return(126),
+                "ret_1y":         trailing_return(252),
             }
 
         except Exception as exc:
@@ -524,7 +525,7 @@ class DataEngine:
             "volume_surge", "avg_vol_20d", "current_vol",
             "pe_ratio", "forward_pe", "beta",
             "intrinsic_value", "upside_downside_pct", "dcf_stage1_growth",
-            "ret_1m", "ret_3m", "ret_6m",
+            "ret_1m", "ret_3m", "ret_6m", "ret_1y",
             "news_headlines", "why_text",
             "signal",
         ]
@@ -536,7 +537,7 @@ class DataEngine:
             "pct_from_high", "pct_from_low", "volume_surge",
             "pe_ratio", "forward_pe", "beta",
             "intrinsic_value", "upside_downside_pct",
-            "ret_1m", "ret_3m", "ret_6m",
+            "ret_1m", "ret_3m", "ret_6m", "ret_1y",
         ]
         for col in numeric_cols:
             if col in out.columns:
@@ -793,5 +794,4 @@ class DataEngine:
             "ticker": ticker,
             "step":   step,
             "error":  str(exc),
-            "time":   datetime.now().isoformat(timespec="seconds"),
-        })
+   
