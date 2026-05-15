@@ -128,6 +128,20 @@ except ImportError:
     def get_dashboard_snapshot() -> dict:         # type: ignore[misc]
         return {}
 
+# ── Screener.in + Alpha Vantage (Indian fundamentals) ────────────────────────
+try:
+    from screener_alpha import build_screener_context, build_alpha_vantage_context
+    _SCREENER_OK = True
+except ImportError:
+    _SCREENER_OK = False
+    def build_screener_context(_sym: str) -> str:         # type: ignore[misc]
+        return ""
+    def build_alpha_vantage_context(_sym: str, _key: str) -> str:  # type: ignore[misc]
+        return ""
+
+_ALPHA_VANTAGE_KEY = _secret("ALPHA_VANTAGE_KEY", "")
+_TAVILY_KEY        = _secret("TAVILY_API_KEY", "")
+
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
     from engine import DataEngine, ScreenerConfig
@@ -1268,7 +1282,10 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   fred_context: str = "",
                   india_macro_context: str = "",
                   nse_bse_context: str = "",
-                  google_news_context: str = "") -> dict:
+                  google_news_context: str = "",
+                  screener_context: str = "",
+                  alpha_vantage_context: str = "",
+                  tavily_context: str = "") -> dict:
     """
     Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
@@ -1290,12 +1307,23 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     def _trim(text: str, max_chars: int) -> str:
         return text[:max_chars] + "\n[...truncated]" if len(text) > max_chars else text
 
-    fmp_block     = f"\n\n{_trim(fmp_context, 2000)}"        if fmp_context        else ""
-    fred_block    = f"\n\n{_trim(fred_context, 800)}"        if fred_context       else ""
-    india_block   = f"\n\n{_trim(india_macro_context, 800)}" if india_macro_context else ""
-    nse_bse_block = f"\n\n{_trim(nse_bse_context, 1500)}"    if nse_bse_context    else ""
-    news_block    = f"\n\n{_trim(google_news_context, 3000)}" if google_news_context else ""
-    all_context   = news_block + fmp_block + fred_block + india_block + nse_bse_block
+    # Tavily takes priority over Google News (richer content); merge both
+    combined_news = ""
+    if tavily_context:
+        combined_news = _trim(tavily_context, 3500)
+        if google_news_context:
+            combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 800)
+    elif google_news_context:
+        combined_news = _trim(google_news_context, 3000)
+
+    fmp_block        = f"\n\n{_trim(fmp_context, 2000)}"             if fmp_context          else ""
+    fred_block       = f"\n\n{_trim(fred_context, 800)}"             if fred_context         else ""
+    india_block      = f"\n\n{_trim(india_macro_context, 800)}"      if india_macro_context  else ""
+    nse_bse_block    = f"\n\n{_trim(nse_bse_context, 1500)}"         if nse_bse_context      else ""
+    screener_block   = f"\n\n{_trim(screener_context, 2000)}"        if screener_context     else ""
+    av_block         = f"\n\n{_trim(alpha_vantage_context, 1200)}"   if alpha_vantage_context else ""
+    news_block       = f"\n\n{combined_news}"                        if combined_news        else ""
+    all_context      = news_block + screener_block + av_block + fmp_block + fred_block + india_block + nse_bse_block
 
     _action_word = "high" if is_hi else "low"
     _risk_label  = "rally" if is_hi else "recovery"
@@ -1466,6 +1494,77 @@ def _fetch_google_news(company: str, ticker: str) -> list[dict]:
         return results
     except Exception:
         return []
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
+    """
+    Search Tavily for recent news + analyst commentary on a stock.
+    Returns a rich context string for the AI prompt.
+    Tavily returns full article snippets — much richer than Google News RSS.
+    """
+    if not api_key:
+        return ""
+
+    clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
+    query = f"{company} {clean_ticker} stock India latest news analyst target 2024 2025"
+
+    try:
+        import requests as _req
+        resp = _req.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key":        api_key,
+                "query":          query,
+                "search_depth":   "advanced",
+                "include_answer": True,
+                "include_domains": [
+                    "economictimes.indiatimes.com",
+                    "moneycontrol.com",
+                    "livemint.com",
+                    "business-standard.com",
+                    "bseindia.com",
+                    "nseindia.com",
+                    "screener.in",
+                    "reuters.com",
+                    "bloomberg.com",
+                    "financialexpress.com",
+                    "thehindubuisessline.com",
+                    "ndtvprofit.com",
+                ],
+                "max_results": 8,
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return ""
+
+        data = resp.json()
+        lines: list[str] = []
+
+        # Tavily top-level answer (synthesised summary)
+        answer = data.get("answer", "")
+        if answer:
+            lines.append(f"[Tavily Summary]\n{answer[:600]}")
+
+        # Individual search results
+        results = data.get("results", [])
+        for r in results[:6]:
+            title    = r.get("title", "")
+            url      = r.get("url", "")
+            content  = r.get("content", "")
+            pub_date = r.get("published_date", "")
+            source   = url.split("/")[2].replace("www.", "") if url else "unknown"
+            snippet  = content[:350].replace("\n", " ").strip() if content else ""
+            date_str = f" ({pub_date})" if pub_date else ""
+            lines.append(
+                f"[{source}]{date_str} {title}\n  {snippet}"
+            )
+
+        return "\n\n".join(lines)
+
+    except Exception:
+        return ""
 
 
 def _render_news_feed(company: str, ticker: str, accent: str):
@@ -1869,10 +1968,43 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
+    # ── Row 2: Indian-specific data sources ───────────────────────────────────
+    src_col5, src_col6, src_col7, _ = st.columns(4)
+
+    with src_col5:
+        with st.spinner("Screener.in: fetching India fundamentals…"):
+            screener_ctx = build_screener_context(ticker) if _SCREENER_OK else ""
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if screener_ctx else "#F0B429"};">'
+            f'{"✅ Screener.in loaded (10yr financials)" if screener_ctx else "⚠️ Screener.in unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with src_col6:
+        with st.spinner("Alpha Vantage: fetching EPS & targets…"):
+            av_ctx = (
+                build_alpha_vantage_context(ticker, _ALPHA_VANTAGE_KEY)
+                if (_SCREENER_OK and _ALPHA_VANTAGE_KEY) else ""
+            )
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#F0B429"};">'
+            f'{"✅ Alpha Vantage EPS/targets loaded" if av_ctx else "⚠️ Alpha Vantage unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with src_col7:
+        with st.spinner("Tavily: searching latest news…"):
+            tavily_ctx = _fetch_tavily_context(name, ticker, _TAVILY_KEY) if _TAVILY_KEY else ""
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if tavily_ctx else "#F0B429"};">'
+            f'{"✅ Tavily web search loaded" if tavily_ctx else "⚠️ Tavily unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
-    # ── Fetch Google News and format as context for AI ────────────────────────
-    with st.spinner("Fetching latest news…"):
+    # ── Fetch Google News (always — also used for news feed section below) ────
+    with st.spinner("Fetching Google News feed…"):
         gn_articles = _fetch_google_news(name, ticker)
     gn_context = ""
     if gn_articles:
@@ -1898,6 +2030,9 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             india_macro_context=india_ctx,
             nse_bse_context=nse_bse_ctx,
             google_news_context=gn_context,
+            screener_context=screener_ctx,
+            alpha_vantage_context=av_ctx,
+            tavily_context=tavily_ctx,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────
@@ -2252,7 +2387,7 @@ def main():
             icon="⚠",
         )
 
-    # ── Section header ────────────────────────────────────────────────────
+    # ── Section header ────────────────────────────────────────────────────────────────────────────────────
     st.markdown(
         f'<div class="sec-hdr" style="margin-top:8px;">'
         f'&#9670; Today\'s Signals &nbsp;'
@@ -2263,14 +2398,14 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # ── Tabs ────────────────────────────────────────────────────────────────────────────
+    # ── Tabs ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     t_hi, t_lo, t_err = st.tabs([
         f"▲  Breakout Highs  ({len(highs_df)})",
         f"▼  Breakdown Lows  ({len(lows_df)})",
         f"⚠  Errors  ({len(errors)})",
     ])
 
-    # ── HIGHS TAB ─────────────────────────────────────────────────────────────────────────────
+    # ── HIGHS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     with t_hi:
         selected_hi = _render_signals_table(highs_df, key="hi")
         if selected_hi and not highs_df.empty:
@@ -2280,7 +2415,7 @@ def main():
                 st.markdown("<hr/>", unsafe_allow_html=True)
                 _render_spotlight(selected_hi, row, p)
 
-    # ── LOWS TAB ──────────────────────────────────────────────────────────────────────────────────
+    # ── LOWS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     with t_lo:
         selected_lo = _render_signals_table(lows_df, key="lo")
         if selected_lo and not lows_df.empty:
@@ -2290,21 +2425,20 @@ def main():
                 st.markdown("<hr/>", unsafe_allow_html=True)
                 _render_spotlight(selected_lo, row, p)
 
-    # ── ERRORS TAB ─────────────────────────────────────────────────────────────────────────────────
+    # ── ERRORS TAB ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     with t_err:
         if not errors:
-            st.success("\u2705 No errors in the last run \u2014 all tickers processed cleanly.")
+            st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
             st.dataframe(err_df, use_container_width=True)
 
-    # \u2500\u2500 Auto-refresh sleep + rerun \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    # ── Auto-refresh sleep + rerun ────────────────────────────────────────────────────────
     if p["auto_refresh"]:
         time.sleep(60)
         st.rerun()
 
 
-# \u2500\u2500 Entry point \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# ── Entry point ───────────────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     main()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  

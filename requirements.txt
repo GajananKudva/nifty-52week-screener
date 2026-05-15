@@ -18,6 +18,4 @@ plotly>=5.20.0
 feedparser>=6.0.0          # Google News RSS parsing
 reportlab>=4.2.0           # PDF report generation
 
-# ── HTTP resilience (used internally by yfinance / openai) ─────────────────
-requests>=2.32.0
-urllib3>=2.2.0
+# ── Web scraping (Screener.in) ─────────────────────────────────────�
