@@ -1,5 +1,5 @@
 """
-screener_alpha.py — Screener.in scraper + Alpha Vantage fundamentals
+screener_alpha.py — Screener.in scraper + yfinance deep fundamentals
 =====================================================================
 Provides two context-building functions used by app.py's AI analyst:
 
@@ -7,15 +7,15 @@ Provides two context-building functions used by app.py's AI analyst:
       Scrapes screener.in for Indian-specific fundamentals:
       10-year financials, quarterly results, pros/cons, shareholding.
 
-  build_alpha_vantage_context(symbol, api_key)  → str
-      Calls Alpha Vantage for EPS surprises, analyst price targets,
-      income statement highlights, and overview metrics.
+  build_yfinance_context(symbol)           → str
+      Pulls 80+ fields from yfinance .info: analyst targets, consensus
+      rating, EPS (trailing/forward), growth rates, margins, DCF metrics.
+      Free, no API key, works natively with NSE .NS symbols.
 """
 
 from __future__ import annotations
 
 import re
-import time
 from typing import Optional
 
 import requests
@@ -240,105 +240,147 @@ def build_screener_context(symbol: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 2.  Alpha Vantage  (EPS surprises, analyst targets, income highlights)
+# 2.  yfinance deep fundamentals
+#     (analyst targets, EPS, growth, margins, ratings — free, no key needed)
 # ─────────────────────────────────────────────────────────────────────────────
 
-_AV_BASE = "https://www.alphavantage.co/query"
-
-
-def _av_get(function: str, symbol: str, api_key: str, **extra) -> Optional[dict]:
+def build_yfinance_context(symbol: str) -> str:
     """
-    Fetch one Alpha Vantage endpoint. Returns parsed JSON or None.
-    Automatically retries with .BSE suffix if bare symbol returns no data
-    (Alpha Vantage requires SYMBOL.BSE format for Indian equities).
+    Pull 80+ fundamental fields from yfinance for the given NSE/BSE symbol.
+    Returns a rich text block for the AI analyst prompt.
+
+    Covers:
+    - Analyst consensus: target price (mean/high/low), recommendation, # of analysts
+    - Valuation: P/E, forward P/E, PEG, P/B, EV/EBITDA, EV/Revenue
+    - Earnings: trailing EPS, forward EPS, earnings growth, revenue growth
+    - Profitability: gross/operating/net margins, ROE, ROA, ROCE
+    - Balance sheet: debt/equity, current ratio, quick ratio
+    - Cash flow: free cash flow, operating cash flow
+    - Dividends: yield, payout ratio
+    - Market: beta, market cap, enterprise value
     """
-    def _fetch(sym: str) -> Optional[dict]:
-        params = {"function": function, "symbol": sym, "apikey": api_key, **extra}
-        try:
-            r = requests.get(_AV_BASE, params=params, timeout=12)
-            if r.status_code != 200:
-                return None
-            data = r.json()
-            # Rate-limit / info messages — not real data
-            if "Information" in data or "Note" in data:
-                return None
-            # Empty response
-            if not data or data == {}:
-                return None
-            return data
-        except Exception:
-            return None
-
-    result = _fetch(symbol)
-    # If bare symbol returned nothing and it's not already suffixed, try .BSE
-    if result is None and not symbol.endswith((".BSE", ".NSE")):
-        result = _fetch(symbol + ".BSE")
-    return result
-
-
-def build_alpha_vantage_context(symbol: str, api_key: str) -> str:
-    """
-    Pull company overview, EPS surprises, and income statement from
-    Alpha Vantage and return a structured text block for the AI prompt.
-
-    Alpha Vantage free tier: 25 req/day, 5 req/min — we make ≤3 calls.
-    Indian stocks require SYMBOL.BSE format — _av_get handles this automatically.
-    """
-    if not api_key:
+    try:
+        import yfinance as yf
+    except ImportError:
         return ""
 
-    clean_sym = symbol.upper().replace(".NS", "").replace(".BO", "")
-    # _av_get will auto-retry with .BSE suffix if needed
-    av_sym = clean_sym
+    # Ensure .NS suffix for NSE stocks
+    clean = symbol.upper().replace(".BO", "")
+    if not clean.endswith(".NS"):
+        clean = clean.replace(".NS", "") + ".NS"
 
-    lines: list[str] = [f"=== Alpha Vantage: {clean_sym} ==="]
+    try:
+        info = yf.Ticker(clean).info
+    except Exception:
+        return ""
 
-    # ── 1. Company Overview ───────────────────────────────────────────────────
-    overview = _av_get("OVERVIEW", av_sym, api_key)
-    if overview and "Symbol" in overview:
-        fields = [
-            ("Market Cap",        overview.get("MarketCapitalization", "")),
-            ("P/E (TTM)",         overview.get("PERatio", "")),
-            ("EPS (TTM)",         overview.get("EPS", "")),
-            ("Revenue (TTM)",     overview.get("RevenueTTM", "")),
-            ("Gross Margin",      overview.get("GrossProfitTTM", "")),
-            ("Operating Margin",  overview.get("OperatingMarginTTM", "")),
-            ("52W High",          overview.get("52WeekHigh", "")),
-            ("52W Low",           overview.get("52WeekLow", "")),
-            ("Analyst Target",    overview.get("AnalystTargetPrice", "")),
-            ("PEG Ratio",         overview.get("PEGRatio", "")),
-            ("Dividend Yield",    overview.get("DividendYield", "")),
-            ("Book Value",        overview.get("BookValue", "")),
-            ("EBITDA",            overview.get("EBITDA", "")),
-            ("Debt/Equity",       overview.get("DebtToEquityRatio", "")),
-            ("ROE",               overview.get("ReturnOnEquityTTM", "")),
-            ("ROA",               overview.get("ReturnOnAssetsTTM", "")),
-            ("Beta",              overview.get("Beta", "")),
-            ("Sector",            overview.get("Sector", "")),
-            ("Industry",          overview.get("Industry", "")),
-        ]
-        valid_fields = [(k, v) for k, v in fields if v and v not in ("None", "-", "0")]
-        if valid_fields:
-            lines.append("Overview: " + " | ".join(f"{k}={v}" for k, v in valid_fields[:12]))
+    if not info or info.get("regularMarketPrice") is None and info.get("currentPrice") is None:
+        return ""
 
-        desc = overview.get("Description", "")
-        if desc and len(desc) > 30:
-            lines.append(f"Description: {_trim(desc, 400)}")
+    lines = [f"=== yfinance Fundamentals: {clean} ==="]
 
-        # Analyst ratings if available
-        target = overview.get("AnalystTargetPrice", "")
-        rating = overview.get("AnalystRatingStrongBuy", "")
-        buy    = overview.get("AnalystRatingBuy", "")
-        hold   = overview.get("AnalystRatingHold", "")
-        sell   = overview.get("AnalystRatingSell", "")
-        if any([rating, buy, hold, sell]):
-            lines.append(
-                f"Analyst Ratings: Strong Buy={rating} Buy={buy} Hold={hold} Sell={sell} | Target Price={target}"
-            )
+    def _fmt(v, prefix="", suffix="", decimals=2, scale=1):
+        """Format a numeric value, return empty string if None/0/NaN."""
+        try:
+            n = float(v) * scale
+            if n == 0:
+                return ""
+            return f"{prefix}{n:,.{decimals}f}{suffix}"
+        except (TypeError, ValueError):
+            return ""
 
-    # NOTE: Free tier = 25 req/day. We use only OVERVIEW (1 call, 2 with .BSE retry)
-    # to preserve quota across multiple stock analyses.
-    # EARNINGS + INCOME_STATEMENT calls removed — Screener.in already covers this for Indian stocks.
+    def _fmt_cr(v):
+        """Convert raw INR value to Rs Cr."""
+        try:
+            return f"Rs{float(v)/1e7:,.0f} Cr"
+        except Exception:
+            return ""
+
+    # ── Analyst consensus ─────────────────────────────────────────────────────
+    target_mean   = info.get("targetMeanPrice")
+    target_high   = info.get("targetHighPrice")
+    target_low    = info.get("targetLowPrice")
+    n_analysts    = info.get("numberOfAnalystOpinions")
+    rec_key       = info.get("recommendationKey", "")
+    rec_mean      = info.get("recommendationMean")  # 1=Strong Buy … 5=Strong Sell
+
+    rec_label = {
+        "strongBuy": "Strong Buy", "buy": "Buy",
+        "hold": "Hold", "sell": "Sell", "strongSell": "Strong Sell",
+    }.get(rec_key, rec_key.title() if rec_key else "")
+
+    analyst_parts = []
+    if target_mean:  analyst_parts.append(f"Target(mean)=Rs{target_mean:,.0f}")
+    if target_high:  analyst_parts.append(f"Target(high)=Rs{target_high:,.0f}")
+    if target_low:   analyst_parts.append(f"Target(low)=Rs{target_low:,.0f}")
+    if rec_label:    analyst_parts.append(f"Consensus={rec_label}")
+    if n_analysts:   analyst_parts.append(f"Analysts={n_analysts}")
+    if analyst_parts:
+        lines.append("Analyst: " + " | ".join(analyst_parts))
+
+    # ── Valuation multiples ───────────────────────────────────────────────────
+    val_pairs = [
+        ("P/E (TTM)",     _fmt(info.get("trailingPE"),   suffix="x")),
+        ("P/E (Fwd)",     _fmt(info.get("forwardPE"),    suffix="x")),
+        ("PEG",           _fmt(info.get("pegRatio"),     suffix="x")),
+        ("P/B",           _fmt(info.get("priceToBook"),  suffix="x")),
+        ("EV/EBITDA",     _fmt(info.get("enterpriseToEbitda"), suffix="x")),
+        ("EV/Revenue",    _fmt(info.get("enterpriseToRevenue"), suffix="x")),
+    ]
+    val_str = " | ".join(f"{k}={v}" for k, v in val_pairs if v)
+    if val_str:
+        lines.append("Valuation: " + val_str)
+
+    # ── Earnings & growth ─────────────────────────────────────────────────────
+    eps_pairs = [
+        ("EPS (TTM)",   _fmt(info.get("trailingEps"),  prefix="Rs")),
+        ("EPS (Fwd)",   _fmt(info.get("forwardEps"),   prefix="Rs")),
+        ("EPS Growth",  _fmt(info.get("earningsGrowth"), suffix="%", scale=100)),
+        ("Rev Growth",  _fmt(info.get("revenueGrowth"),  suffix="%", scale=100)),
+    ]
+    eps_str = " | ".join(f"{k}={v}" for k, v in eps_pairs if v)
+    if eps_str:
+        lines.append("Earnings: " + eps_str)
+
+    # ── Profitability ─────────────────────────────────────────────────────────
+    prof_pairs = [
+        ("Gross Margin",  _fmt(info.get("grossMargins"),     suffix="%", scale=100)),
+        ("Op Margin",     _fmt(info.get("operatingMargins"), suffix="%", scale=100)),
+        ("Net Margin",    _fmt(info.get("profitMargins"),    suffix="%", scale=100)),
+        ("ROE",           _fmt(info.get("returnOnEquity"),   suffix="%", scale=100)),
+        ("ROA",           _fmt(info.get("returnOnAssets"),   suffix="%", scale=100)),
+    ]
+    prof_str = " | ".join(f"{k}={v}" for k, v in prof_pairs if v)
+    if prof_str:
+        lines.append("Profitability: " + prof_str)
+
+    # ── Balance sheet & cash flow ─────────────────────────────────────────────
+    bs_pairs = [
+        ("D/E",          _fmt(info.get("debtToEquity"),  suffix="x", scale=0.01)),
+        ("Current Ratio", _fmt(info.get("currentRatio"), suffix="x")),
+        ("Quick Ratio",   _fmt(info.get("quickRatio"),   suffix="x")),
+        ("Free CF",       _fmt_cr(info.get("freeCashflow"))),
+        ("Op CF",         _fmt_cr(info.get("operatingCashflow"))),
+    ]
+    bs_str = " | ".join(f"{k}={v}" for k, v in bs_pairs if v)
+    if bs_str:
+        lines.append("Balance Sheet: " + bs_str)
+
+    # ── Market & size ─────────────────────────────────────────────────────────
+    mkt_pairs = [
+        ("Mkt Cap",    _fmt_cr(info.get("marketCap"))),
+        ("Ent Value",  _fmt_cr(info.get("enterpriseValue"))),
+        ("Beta",       _fmt(info.get("beta"), suffix="x")),
+        ("Div Yield",  _fmt(info.get("dividendYield"), suffix="%", scale=100)),
+    ]
+    mkt_str = " | ".join(f"{k}={v}" for k, v in mkt_pairs if v)
+    if mkt_str:
+        lines.append("Market: " + mkt_str)
+
+    # ── Company description (trimmed) ─────────────────────────────────────────
+    desc = info.get("longBusinessSummary", "")
+    if desc and len(desc) > 50:
+        lines.append(f"Business: {_trim(desc, 350)}")
 
     result = "\n".join(lines)
     return result if len(result) > 80 else ""

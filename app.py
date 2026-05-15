@@ -128,19 +128,18 @@ except ImportError:
     def get_dashboard_snapshot() -> dict:         # type: ignore[misc]
         return {}
 
-# ── Screener.in + Alpha Vantage (Indian fundamentals) ────────────────────────
+# ── Screener.in + yfinance deep fundamentals (no API key needed) ─────────────
 try:
-    from screener_alpha import build_screener_context, build_alpha_vantage_context
+    from screener_alpha import build_screener_context, build_yfinance_context
     _SCREENER_OK = True
 except ImportError:
     _SCREENER_OK = False
-    def build_screener_context(_sym: str) -> str:         # type: ignore[misc]
+    def build_screener_context(_sym: str) -> str:       # type: ignore[misc]
         return ""
-    def build_alpha_vantage_context(_sym: str, _key: str) -> str:  # type: ignore[misc]
+    def build_yfinance_context(_sym: str) -> str:       # type: ignore[misc]
         return ""
 
-_ALPHA_VANTAGE_KEY = _secret("ALPHA_VANTAGE_KEY", "")
-_TAVILY_KEY        = _secret("TAVILY_API_KEY", "")
+_TAVILY_KEY = _secret("TAVILY_API_KEY", "")
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1567,10 +1566,10 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
 
-@st.cache_data(ttl=86400, show_spinner=False)   # 24h cache — free tier: 25 req/day
-def _cached_alpha_vantage(ticker: str, api_key: str) -> str:
-    """Cached wrapper for build_alpha_vantage_context. Prevents re-calling on every spotlight click."""
-    return build_alpha_vantage_context(ticker, api_key) if (_SCREENER_OK and api_key) else ""
+@st.cache_data(ttl=3600, show_spinner=False)    # 1h cache — yfinance is free but rate-sensitive
+def _cached_yfinance_context(ticker: str) -> str:
+    """Cached wrapper for build_yfinance_context. Prevents repeated calls on spotlight re-renders."""
+    return build_yfinance_context(ticker) if _SCREENER_OK else ""
 
 
 def _render_news_feed(company: str, ticker: str, accent: str):
@@ -1987,14 +1986,11 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         )
 
     with src_col6:
-        with st.spinner("Alpha Vantage: fetching EPS & targets…"):
-            av_ctx = (
-                _cached_alpha_vantage(ticker, _ALPHA_VANTAGE_KEY)
-                if (_SCREENER_OK and _ALPHA_VANTAGE_KEY) else ""
-            )
+        with st.spinner("yfinance: fetching analyst targets & EPS…"):
+            av_ctx = _cached_yfinance_context(ticker) if _SCREENER_OK else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#F0B429"};">'
-            f'{"✅ Alpha Vantage EPS/targets loaded" if av_ctx else "⚠️ Alpha Vantage unavailable"}</div>',
+            f'{"✅ yfinance analyst data loaded" if av_ctx else "⚠️ yfinance fundamentals unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2442,4 +2438,7 @@ def main():
     # ── Auto-refresh sleep + rerun ────────────────────────────────────────────────────────
     if p["auto_refresh"]:
         time.sleep(60)
- 
+        st.rerun()
+
+
+# ── Entry point ─────────────────────────────────────────────────────────
