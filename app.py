@@ -773,12 +773,14 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
         return out
 
     # ── Real engine path ──────────────────────────────────────────────────────
+    # When volume filter is OFF, set threshold to 0 so every stock passes vol_confirmed check
+    _vol_threshold = p["vol_surge"] if p.get("use_vol_filter", False) else 0.0
     cfg = ScreenerConfig(
         tickers                = tickers,
         high_low_window        = p["window"],
         breakout_threshold     = p["threshold"],
         volume_window          = 20,
-        volume_surge_threshold = p["vol_surge"],
+        volume_surge_threshold = _vol_threshold,
         dcf_discount_rate      = p["wacc"],
         dcf_terminal_growth    = p["term_growth"],
         dcf_stage1_years       = 5,
@@ -1204,7 +1206,14 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                       else f"&#9660; {pv:.2f}% FROM 52W LOW" if pv is not None
                       else "&#9660; NEAR 52-WEEK LOW")
 
-        vol_str = f"Vol surge {vsurge:.1f}&times;" if vsurge else ""
+        vol_confirmed = row.get("vol_confirmed")
+        if vsurge:
+            if vol_confirmed:
+                vol_str = f"&#9889; Vol surge {vsurge:.1f}&times; confirmed"
+            else:
+                vol_str = f"Vol {vsurge:.1f}&times; (below surge threshold)"
+        else:
+            vol_str = ""
 
         # Build insight bullets
         bullets = _build_why_bullets(dict(row), is_hi)
@@ -2064,10 +2073,13 @@ def _render_sidebar() -> dict:
             'Technical Parameters</div>',
             unsafe_allow_html=True,
         )
-        threshold = st.slider("52W Proximity Band (%)", 0.5, 10.0, 2.5, 0.5,
-                               help="Flag stocks within this % of their 52W extreme") / 100
-        vol_surge = st.slider("Min Volume Surge (×)",    1.0,  5.0, 1.2, 0.1,
-                               help="Current volume ÷ 20-day average volume")
+        threshold = st.slider("52W Proximity Band (%)", 0.0, 10.0, 2.5, 0.5,
+                               help="Flag stocks within this % of their 52W extreme. Set to 0 to see only stocks exactly at the high/low.") / 100
+        use_vol_filter = st.toggle("Volume Surge filter", value=False,
+                                   help="When ON, only stocks with the required volume surge are shown. When OFF, all proximity hits appear regardless of volume.")
+        vol_surge = st.slider("Min Volume Surge (×)", 0.5, 5.0, 1.2, 0.1,
+                               help="Required volume surge when filter is ON. Shown as ⚡ badge when confirmed.",
+                               disabled=not use_vol_filter)
         window    = st.slider("Lookback Window (days)", 100,  365, 252, 10)
 
         st.markdown("<hr/>", unsafe_allow_html=True)
@@ -2142,15 +2154,16 @@ def _render_sidebar() -> dict:
             )
 
     params = {
-        "threshold":   threshold,
-        "vol_surge":   vol_surge,
-        "window":      window,
-        "wacc":        wacc,
-        "term_growth": term_growth,
-        "universe":    universe,
-        "custom_txt":  custom_txt,
-        "run":         run,
-        "auto_refresh":auto_refresh,
+        "threshold":      threshold,
+        "vol_surge":      vol_surge,
+        "use_vol_filter": use_vol_filter,
+        "window":         window,
+        "wacc":           wacc,
+        "term_growth":    term_growth,
+        "universe":       universe,
+        "custom_txt":     custom_txt,
+        "run":            run,
+        "auto_refresh":   auto_refresh,
     }
     return params
 
@@ -2265,17 +2278,17 @@ def main():
     # ── ERRORS TAB ─────────────────────────────────────────────────────────────────────────────────
     with t_err:
         if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
+            st.success("\u2705 No errors in the last run \u2014 all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
             st.dataframe(err_df, use_container_width=True)
 
-    # ── Auto-refresh sleep + rerun ────────────────────────────────────────────────────────────────────────
+    # \u2500\u2500 Auto-refresh sleep + rerun \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     if p["auto_refresh"]:
         time.sleep(60)
         st.rerun()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────────────────────────────
+# \u2500\u2500 Entry point \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 if __name__ == "__main__":
     main()
