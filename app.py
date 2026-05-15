@@ -1567,6 +1567,12 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
 
+@st.cache_data(ttl=86400, show_spinner=False)   # 24h cache — free tier: 25 req/day
+def _cached_alpha_vantage(ticker: str, api_key: str) -> str:
+    """Cached wrapper for build_alpha_vantage_context. Prevents re-calling on every spotlight click."""
+    return build_alpha_vantage_context(ticker, api_key) if (_SCREENER_OK and api_key) else ""
+
+
 def _render_news_feed(company: str, ticker: str, accent: str):
     """Render the Google News feed section below the analyst report."""
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -1983,7 +1989,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     with src_col6:
         with st.spinner("Alpha Vantage: fetching EPS & targets…"):
             av_ctx = (
-                build_alpha_vantage_context(ticker, _ALPHA_VANTAGE_KEY)
+                _cached_alpha_vantage(ticker, _ALPHA_VANTAGE_KEY)
                 if (_SCREENER_OK and _ALPHA_VANTAGE_KEY) else ""
             )
         st.markdown(
@@ -2436,9 +2442,4 @@ def main():
     # ── Auto-refresh sleep + rerun ────────────────────────────────────────────────────────
     if p["auto_refresh"]:
         time.sleep(60)
-        st.rerun()
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    main()
+ 

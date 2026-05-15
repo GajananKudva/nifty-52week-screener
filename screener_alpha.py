@@ -336,54 +336,9 @@ def build_alpha_vantage_context(symbol: str, api_key: str) -> str:
                 f"Analyst Ratings: Strong Buy={rating} Buy={buy} Hold={hold} Sell={sell} | Target Price={target}"
             )
 
-    time.sleep(0.3)  # stay within 5 req/min free tier
-
-    # ── 2. Earnings (EPS surprises) ───────────────────────────────────────────
-    earnings = _av_get("EARNINGS", av_sym, api_key)
-    if earnings:
-        quarterly = earnings.get("quarterlyEarnings", [])
-        if quarterly:
-            lines.append("Quarterly EPS Surprises (last 4Q):")
-            for q in quarterly[:4]:
-                date         = q.get("fiscalDateEnding", "")
-                reported_eps = q.get("reportedEPS", "N/A")
-                estimated    = q.get("estimatedEPS", "N/A")
-                surprise     = q.get("surprisePercentage", "")
-                surprise_str = f" (surprise: {float(surprise):+.1f}%)" if surprise and surprise not in ("None", "") else ""
-                lines.append(
-                    f"  {date}: Reported={reported_eps} | Estimated={estimated}{surprise_str}"
-                )
-
-    time.sleep(0.3)
-
-    # ── 3. Income Statement (annual, last 3 years) ────────────────────────────
-    income = _av_get("INCOME_STATEMENT", av_sym, api_key)
-    if income:
-        annual = income.get("annualReports", [])
-        if annual:
-            lines.append("Annual Income (last 3 years):")
-            for yr in annual[:3]:
-                fy          = yr.get("fiscalDateEnding", "")[:4]
-                revenue     = yr.get("totalRevenue", "")
-                gross       = yr.get("grossProfit", "")
-                net_income  = yr.get("netIncome", "")
-                ebitda      = yr.get("ebitda", "")
-
-                def _fmt_cr(v: str) -> str:
-                    """Convert raw USD/INR value to readable format (Rs Cr)."""
-                    try:
-                        n = float(v)
-                        cr = n / 1e7
-                        return f"Rs{cr:,.0f}Cr"
-                    except Exception:
-                        return v
-
-                parts = [f"FY{fy}"]
-                if revenue:  parts.append(f"Revenue={_fmt_cr(revenue)}")
-                if gross:    parts.append(f"GrossProfit={_fmt_cr(gross)}")
-                if net_income: parts.append(f"NetIncome={_fmt_cr(net_income)}")
-                if ebitda:   parts.append(f"EBITDA={_fmt_cr(ebitda)}")
-                lines.append("  " + " | ".join(parts))
+    # NOTE: Free tier = 25 req/day. We use only OVERVIEW (1 call, 2 with .BSE retry)
+    # to preserve quota across multiple stock analyses.
+    # EARNINGS + INCOME_STATEMENT calls removed — Screener.in already covers this for Indian stocks.
 
     result = "\n".join(lines)
     return result if len(result) > 80 else ""
