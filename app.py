@@ -1267,7 +1267,8 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   fmp_context: str = "",
                   fred_context: str = "",
                   india_macro_context: str = "",
-                  nse_bse_context: str = "") -> dict:
+                  nse_bse_context: str = "",
+                  google_news_context: str = "") -> dict:
     """
     Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
@@ -1289,95 +1290,63 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     def _trim(text: str, max_chars: int) -> str:
         return text[:max_chars] + "\n[...truncated]" if len(text) > max_chars else text
 
-    fmp_block      = f"\n\n{_trim(fmp_context, 2000)}"      if fmp_context      else ""
-    fred_block     = f"\n\n{_trim(fred_context, 800)}"      if fred_context     else ""
-    india_block    = f"\n\n{_trim(india_macro_context, 800)}" if india_macro_context else ""
-    nse_bse_block  = f"\n\n{_trim(nse_bse_context, 1500)}"  if nse_bse_context  else ""
-    all_context    = fmp_block + fred_block + india_block + nse_bse_block
-
-    sector_lens = _get_sector_lens(sector)
+    fmp_block     = f"\n\n{_trim(fmp_context, 2000)}"        if fmp_context        else ""
+    fred_block    = f"\n\n{_trim(fred_context, 800)}"        if fred_context       else ""
+    india_block   = f"\n\n{_trim(india_macro_context, 800)}" if india_macro_context else ""
+    nse_bse_block = f"\n\n{_trim(nse_bse_context, 1500)}"    if nse_bse_context    else ""
+    news_block    = f"\n\n{_trim(google_news_context, 3000)}" if google_news_context else ""
+    all_context   = news_block + fmp_block + fred_block + india_block + nse_bse_block
 
     _action_word = "high" if is_hi else "low"
     _risk_label  = "rally" if is_hi else "recovery"
 
-    prompt = f"""Act as a senior equity analyst.
+    prompt = f"""You are a senior equity research analyst at a top institutional fund.
+Write a Stock Catalyst Analysis for {company} ({ticker}), which is near its 52-week {_action_word}.
 
-{company} ({ticker}) | Sector: {sector} | has hit a 52-week {_action_word}.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MARKET DATA
-  Current Price : ₹{price:,.2f}
-  52W High      : ₹{high52:,.2f}  ({abs(pct_from_high):.1f}% away)
-  52W Low       : ₹{low52:,.2f}   ({abs(pct_from_low):.1f}% away)
+  Current Price : Rs{price:,.2f}
+  52W High      : Rs{high52:,.2f}  ({abs(pct_from_high):.1f}% away)
+  52W Low       : Rs{low52:,.2f}   ({abs(pct_from_low):.1f}% away)
   Volume Surge  : {vsurge:.1f}x 20-day average
-  P/E           : {pe if pe else "N/A"}x
-  DCF Upside    : {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+  P/E           : {pe if pe else "N/A"}x    |    DCF Upside: {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+  Returns       : 1M={f"{ret_1m:+.1f}%" if ret_1m is not None else "N/A"}  3M={f"{ret_3m:+.1f}%" if ret_3m is not None else "N/A"}  6M={f"{ret_6m:+.1f}%" if ret_6m is not None else "N/A"}  1Y={f"{ret_1y:+.1f}%" if ret_1y is not None else "N/A"}
+  Sector        : {sector}
+{f"  Recent closes (oldest to newest): {price_series}" if price_series else ""}
 
-TRAILING RETURNS
-  1 Month  : {f"{ret_1m:+.2f}%" if ret_1m is not None else "N/A"}
-  3 Months : {f"{ret_3m:+.2f}%" if ret_3m is not None else "N/A"}
-  6 Months : {f"{ret_6m:+.2f}%" if ret_6m is not None else "N/A"}
-  1 Year   : {f"{ret_1y:+.2f}%" if ret_1y is not None else "N/A"}
-{f"RECENT DAILY CLOSES (last 30 trading days, oldest→newest){chr(10)}  {price_series}" if price_series else ""}
-  Recent Headlines: {news_headlines}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECENT NEWS AND FILINGS (use these as your primary source for catalyst dates and figures):
+{all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
-SECTOR LENS — {sector.upper()}:
-{sector_lens}
+TASK:
+Identify 4 to 7 specific catalysts that explain why {company} is at a 52-week {_action_word}.
+For each catalyst, provide a dated headline, a 2-3 sentence explanation with specific figures, and the source.
+Include a mix of positive, negative, and neutral catalysts where relevant.
+Classify overall sentiment and confidence.
 
-ALL AVAILABLE DATA (fundamentals, macro, delivery/F&O, FII/DII flows):
-{all_context}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TASK: Identify and explain the specific catalysts driving this {_action_word}.
-Structure your response across exactly these 7 sections:
-
-1. RECENT PRICE ACTION — % move over 1M, 3M, 6M, 1Y, and when the breakout/breakdown began.
-   Describe the shape of the move (gap-up, steady grind, spike-and-hold, etc.).
-
-2. FUNDAMENTAL CATALYSTS — recent earnings beats/misses, guidance upgrades/cuts, margin
-   expansion/contraction, new orders/contracts, capex announcements, or business model changes.
-   Cite specific numbers (EPS, revenue %, margin bps). Use FMP data above where available.
-
-3. SECTORAL / MACRO TAILWINDS — industry cycle turn, policy changes, government incentives
-   (PLI, tariffs, regulation), commodity price moves, or peer re-rating. How is the sector
-   environment helping or hurting this move?
-
-4. CORPORATE ACTIONS & EVENTS — management changes, M&A, demergers, fundraises (QIP/rights),
-   buybacks, promoter buying/selling, block deals, or index inclusion/exclusion.
-   Cite dates and amounts where available.
-
-5. NARRATIVE SHIFT — what is the new story the market is pricing in vs. 6–12 months ago?
-   Has the company moved from one classification (commodity/cyclical) to another
-   (structural/growth/quality)? What has changed in institutional perception?
-
-6. TECHNICAL & FLOW FACTORS — FII/DII net buying/selling (cite Rs. Cr figures), mutual fund
-   accumulation, delivery % vs. average, F&O buildup (long/short), breakout from long
-   consolidation, or short covering. Distinguish conviction buying from speculative flow.
-
-7. RISKS TO THE {_risk_label.upper()} — what could break this story?
-   Top 2-3 specific, sector-relevant risks: valuation stretch, execution risk, regulatory risk,
-   dependency on a single driver, or macro reversal. Be concrete — not generic.
-
-RULES:
-- Use only verifiable data from the provided context, earnings calls, exchange filings, and news.
-- If a catalyst is speculative or unconfirmed, label it clearly as [SPECULATIVE].
-- Be specific, direct, and opinionated — write like a senior analyst, not a textbook.
-- End with a one-line verdict: "JUSTIFIED" or "EXCESSIVE", with conviction level (High/Medium/Low).
-
-IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble, no thinking text.
+IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 
 {{
-  "recent_price_action": "% moves over 1M/3M/6M/1Y, when the {_action_word} breakout began, and the shape of the price move. Be specific with dates and % figures.",
-  "fundamental_catalysts": "Earnings beats/misses, guidance changes, margin trends, new orders. Cite exact EPS, revenue %, margin bps from available data. Label speculation clearly.",
-  "sectoral_macro": "Industry cycle, policy tailwinds/headwinds, commodity moves, peer re-rating directly relevant to this {_action_word}.",
-  "corporate_actions": "M&A, fundraises, buybacks, promoter deals, index events — with dates and amounts. State 'None identified' if nothing material.",
-  "narrative_shift": "The old story vs. the new story. What has changed in institutional perception over the last 6-12 months?",
-  "flow_factors": "FII/DII net flows (Rs. Cr), delivery %, F&O buildup type, MF activity, short covering. Who is driving this and is it conviction or speculation?",
-  "risks": "Top 2-3 specific risks that could invalidate this {_risk_label}. Concrete and sector-relevant.",
-  "analyst_verdict": "JUSTIFIED or EXCESSIVE. Conviction: High/Medium/Low. One sentence on the single most important reason.",
-  "summary": "The stock is at a 52-week {_action_word} primarily because ___."
-}}"""
+  "sentiment": "Bullish",
+  "confidence": "Medium",
+  "catalysts": [
+    {{
+      "type": "positive",
+      "headline": "One-line catalyst headline including the key number or date",
+      "detail": "2-3 sentences explaining the catalyst with specific figures (revenue %, EPS, Rs crore amounts, dates). Why does this matter for the stock price?",
+      "date": "Month DD, YYYY",
+      "source": "Source name (e.g. Bloomberg, NSE filing, Business Standard)"
+    }}
+  ],
+  "summary": "3-4 sentence overall assessment: sentiment drivers, key risk, and the single most important catalyst. Write like an analyst note, not a textbook.",
+  "sources": ["Source Name, Month DD YYYY", "Source Name, Month DD YYYY"]
+}}
+
+Rules:
+- catalyst type must be exactly: "positive", "negative", or "neutral"
+- Each headline must include at least one specific figure or date
+- If you cannot verify a specific date, write "approximately [Month Year]"
+- Include sector tailwinds and risks as separate catalysts
+- Write with conviction — avoid hedging language like "could", "might", "may"
+- sources array should list unique sources referenced across all catalysts"""
 
     last_err = ""
     try:
@@ -1430,17 +1399,21 @@ def _fallback_deep_dive(ticker, company, sector, signal,
                         vsurge, pe, dcf_upside, error="") -> dict:
     is_hi = "HIGH" in signal.upper()
     level = "52-week high" if is_hi else "52-week low"
-    err_note = f" (OpenAI error: {error[:120]})" if error else " (OpenAI API key not configured)"
+    err_note = f"OpenAI error: {error[:120]}" if error else "AI API key not configured"
     return {
-        "recent_price_action":   f"Price data available above. AI analysis unavailable.{err_note}",
-        "fundamental_catalysts": f"{company} is near its {level}. Fundamental catalyst research requires an AI API key.{err_note}",
-        "sectoral_macro":        f"Sector: {sector}. Macro analysis requires an AI API key.{err_note}",
-        "corporate_actions":     f"Corporate action research requires an AI API key.{err_note}",
-        "narrative_shift":       f"Narrative analysis requires an AI API key.{err_note}",
-        "flow_factors":          f"Volume surge: {vsurge:.1f}×. FII/DII flow analysis requires an AI API key.{err_note}",
-        "risks":                 f"Risk analysis requires an AI API key.{err_note}",
-        "analyst_verdict":       f"Verdict unavailable.{err_note}",
-        "summary":               f"The stock is at a {level} — configure an AI API key for full analysis.",
+        "sentiment":  "Neutral",
+        "confidence": "Low",
+        "catalysts": [
+            {
+                "type":     "neutral",
+                "headline": f"{company} is near its {level} — AI analysis unavailable",
+                "detail":   f"Configure an AI API key to get detailed catalyst analysis. {err_note}",
+                "date":     "",
+                "source":   "System",
+            }
+        ],
+        "summary": f"{company} ({ticker}) is near its {level} at Rs{price:,.2f}. Volume surge: {vsurge:.1f}x. Configure an AI API key for full catalyst analysis.",
+        "sources": [],
     }
 
 
@@ -1898,6 +1871,19 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
+    # ── Fetch Google News and format as context for AI ────────────────────────
+    with st.spinner("Fetching latest news…"):
+        gn_articles = _fetch_google_news(name, ticker)
+    gn_context = ""
+    if gn_articles:
+        lines = []
+        for a in gn_articles:
+            lines.append(
+                f"[{a['source']}] {a['title']} ({a['published']})\n"
+                f"  {a['summary']}"
+            )
+        gn_context = "\n\n".join(lines)
+
     with st.spinner(f"AI is writing the analyst report for {name}…"):
         analysis = _ai_deep_dive(
             ticker=ticker, company=name, sector=row.get("sector", ""),
@@ -1911,12 +1897,12 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             fred_context=fred_ctx,
             india_macro_context=india_ctx,
             nse_bse_context=nse_bse_ctx,
+            google_news_context=gn_context,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────
-    summary       = analysis.get("summary", "")
-    is_api_fail = ("enable OpenAI API" in summary or "OpenAI error" in summary
-                   or "requires OpenAI API" in summary)
+    summary    = analysis.get("summary", "")
+    is_api_fail = ("AI API key not configured" in summary or "OpenAI error" in summary)
 
     if is_api_fail:
         st.markdown(
@@ -1925,10 +1911,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             '<div style="font-size:13px;font-weight:700;color:#F0B429;'
             'margin-bottom:8px;">⚠️ AI Analysis Unavailable</div>'
             '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
-            'Could not connect to OpenAI. Check your API key in the .env file.<br>'
-            '<b>To fix:</b> Ensure OPENAI_API_KEY is set correctly and your account has credits.<br>'
-            '<a href="https://platform.openai.com/account/api-keys" target="_blank" '
-            'style="color:#58A6FF;">→ platform.openai.com/account/api-keys</a>'
+            'Could not connect to the AI model. Check your API key in Streamlit secrets.<br>'
+            '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY'
             '</div></div>',
             unsafe_allow_html=True,
         )
@@ -1938,58 +1922,89 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             if cache_key in st.session_state:
                 del st.session_state[cache_key]
             st.rerun()
-        return   # Don't render empty cards
+        return
 
-    # ── Summary banner ────────────────────────────────────────────────────────
-    if summary:
+    # ── Sentiment + confidence header ─────────────────────────────────────────
+    sentiment  = analysis.get("sentiment", "")
+    confidence = analysis.get("confidence", "")
+    _sent_color = {"Bullish": "#3FB950", "Bearish": "#F85149", "Neutral": "#8B949E"}.get(sentiment, _MUTED)
+    _sent_dot   = {"Bullish": "🟢", "Bearish": "🔴", "Neutral": "⚪"}.get(sentiment, "⚪")
+    _conf_color = {"High": "#3FB950", "Medium": "#F0B429", "Low": "#F85149"}.get(confidence, _MUTED)
+
+    if sentiment or confidence:
         st.markdown(
-            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
-            f'border:1px solid {accent};border-radius:8px;'
-            f'padding:14px 20px;margin-bottom:16px;">'
-            f'<span style="font-size:11px;font-weight:700;letter-spacing:2px;'
-            f'text-transform:uppercase;color:{accent};">&#9670; Analyst Verdict</span>'
-            f'<div style="font-size:14px;font-weight:600;color:#E6EDF3;'
-            f'margin-top:6px;line-height:1.5;">{summary}</div>'
+            f'<div style="background:{_CARD};border:1px solid #30363D;'
+            f'border-radius:8px;padding:12px 20px;margin-bottom:14px;'
+            f'display:flex;align-items:center;gap:16px;">'
+            f'<span style="font-size:20px">{_sent_dot}</span>'
+            f'<span style="font-size:15px;font-weight:700;color:{_sent_color};">'
+            f'Sentiment: {sentiment}</span>'
+            f'<span style="color:{_MUTED};font-size:14px;margin:0 8px;">|</span>'
+            f'<span style="font-size:14px;color:{_conf_color};">'
+            f'Confidence: <b>{confidence}</b></span>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    # ── Analyst verdict banner ────────────────────────────────────────────────
-    verdict = analysis.get("analyst_verdict", "")
-    if verdict:
-        is_justified = "JUSTIFIED" in verdict.upper()
-        v_color  = "#3FB950" if is_justified else "#F0B429"
-        v_bg     = "#0d2618"  if is_justified else "#2a1a00"
-        v_label  = "✅ JUSTIFIED MOVE" if is_justified else "⚠️ EXCESSIVE / FLOW-DRIVEN"
+    # ── Catalyst cards ────────────────────────────────────────────────────────
+    catalysts = analysis.get("catalysts", [])
+    if catalysts:
         st.markdown(
-            f'<div style="background:{v_bg};border:1px solid {v_color};'
-            f'border-radius:8px;padding:14px 20px;margin-bottom:16px;">'
-            f'<span style="font-size:11px;font-weight:700;letter-spacing:2px;'
-            f'text-transform:uppercase;color:{v_color};">{v_label}</span>'
-            f'<div style="font-size:13px;color:#E6EDF3;margin-top:6px;line-height:1.6;">'
-            f'{verdict}</div></div>',
+            '<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            'text-transform:uppercase;color:#8B949E;margin:4px 0 10px;">Key Catalysts</div>',
+            unsafe_allow_html=True,
+        )
+        for cat in catalysts:
+            cat_type   = str(cat.get("type", "neutral")).lower()
+            headline   = cat.get("headline", "")
+            detail     = cat.get("detail", "")
+            cat_date   = cat.get("date", "")
+            cat_source = cat.get("source", "")
+
+            _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
+            _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
+            _cbdr  = {"positive": "#238636", "negative": "#8B1A1A", "neutral": "#30363D"}.get(cat_type, "#30363D")
+            _cmeta = f"{cat_date}  ·  {cat_source}" if cat_date or cat_source else ""
+
+            st.markdown(
+                f'<div style="background:{_cbg};border:1px solid {_cbdr};'
+                f'border-radius:8px;padding:14px 18px;margin-bottom:10px;">'
+                f'<div style="display:flex;align-items:flex-start;gap:10px;">'
+                f'<span style="font-size:18px;line-height:1.3">{_icon}</span>'
+                f'<div style="flex:1">'
+                f'<div style="font-size:14px;font-weight:600;color:#E6EDF3;'
+                f'line-height:1.4;margin-bottom:6px;">{headline}</div>'
+                f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{detail}</div>'
+                + (f'<div style="font-size:11px;color:#6E7681;margin-top:8px;">{_cmeta}</div>'
+                   if _cmeta else "")
+                + f'</div></div></div>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    if summary:
+        st.markdown(
+            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
+            f'border:1px solid {accent};border-radius:8px;'
+            f'padding:16px 20px;margin:8px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:{accent};margin-bottom:8px;">&#9670; Summary</div>'
+            f'<div style="font-size:14px;color:#E6EDF3;line-height:1.7;">{summary}</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
-    # ── 7 sections in 2-column grid ───────────────────────────────────────────
-    left, right = st.columns(2)
-    with left:
-        _section_card("📈", "1. Recent Price Action",
-                      analysis.get("recent_price_action", "—"), accent)
-        _section_card("⚡", "2. Fundamental Catalysts",
-                      analysis.get("fundamental_catalysts", "—"), _BLUE)
-        _section_card("🏛", "3. Sectoral & Macro Tailwinds",
-                      analysis.get("sectoral_macro", "—"), _YELLOW)
-        _section_card("🔔", "4. Corporate Actions & Events",
-                      analysis.get("corporate_actions", "—"), "#A371F7")
-
-    with right:
-        _section_card("💬", "5. Narrative Shift",
-                      analysis.get("narrative_shift", "—"), "#58A6FF")
-        _section_card("🏦", "6. Technical & Flow Factors",
-                      analysis.get("flow_factors", "—"), "#3FB950")
-        _section_card("⚠", "7. Risks" + (" to the Rally" if is_hi else " to Recovery"),
-                      analysis.get("risks", "—"), _RED)
+    # ── Sources ───────────────────────────────────────────────────────────────
+    sources = analysis.get("sources", [])
+    if sources:
+        src_html = "  &nbsp;·&nbsp;  ".join(
+            f'<span style="color:#8B949E">{s}</span>' for s in sources
+        )
+        st.markdown(
+            f'<div style="font-size:11px;color:#6E7681;padding:4px 0 8px;">'
+            f'<b style="color:#8B949E">Sources:</b>&nbsp;&nbsp;{src_html}</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Full Google News feed ─────────────────────────────────────────────────
     st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
@@ -2292,3 +2307,4 @@ def main():
 # \u2500\u2500 Entry point \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 if __name__ == "__main__":
     main()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
