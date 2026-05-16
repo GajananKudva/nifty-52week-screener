@@ -101,27 +101,32 @@ class DataEngine:
             except Exception:
                 live = 0.0
             last_close    = float(df["Close"].iloc[-1])
-            current_price = live if live > 0 else last_close
-            today_high    = float(df["High"].iloc[-1])
+            current_price = live if live > 0 else last_close   # LTP — shown in UI, not used for signal
+            today_high    = float(df["High"].iloc[-1])          # session high — used for BREAKOUT signal
+            today_low     = float(df["Low"].iloc[-1])           # session low  — used for BREAKDOWN signal
             current_vol   = float(df["Volume"].iloc[-1])
 
+            # 52W range always includes today's extremes
             week52_high = max(float(window_df["High"].max()), today_high)
-            week52_low  = float(window_df["Low"].min())
+            week52_low  = min(float(window_df["Low"].min()),  today_low)
 
             baseline_vol_series = df["Volume"].iloc[-(self.config.volume_window + 1):-1]
             avg_vol_20d = float(baseline_vol_series.mean())
             if avg_vol_20d <= 0 or np.isnan(avg_vol_20d):
                 return None
 
-            volume_surge  = current_vol / avg_vol_20d
-            pct_from_high = (week52_high - current_price) / week52_high
-            pct_from_low  = (current_price - week52_low)  / week52_low
+            volume_surge = current_vol / avg_vol_20d
+
+            # ── Signal detection: day HIGH/LOW vs 52W extreme ─────────────────
+            # "Did the stock TOUCH the 52W high/low zone during today's session?"
+            # This catches stocks that hit the extreme intraday even if LTP has pulled back.
+            pct_from_high = (week52_high - today_high) / week52_high   # day HIGH vs 52W high
+            pct_from_low  = (today_low   - week52_low) / week52_low    # day LOW  vs 52W low
 
             near_high     = pct_from_high <= self.config.breakout_threshold
             near_low      = pct_from_low  <= self.config.breakout_threshold
             vol_confirmed = volume_surge  >= self.config.volume_surge_threshold
 
-            # Signal is set on PROXIMITY alone -- volume is informational metadata.
             if near_high:
                 signal = "BREAKOUT_HIGH"
             elif near_low:
@@ -137,11 +142,13 @@ class DataEngine:
 
             return {
                 "ticker":         ticker,
-                "current_price":  round(current_price, 2),
+                "current_price":  round(current_price, 2),   # LTP — display only
+                "day_high":       round(today_high, 2),       # session high — used for signal
+                "day_low":        round(today_low,  2),       # session low  — used for signal
                 "week_52_high":   round(week52_high, 2),
-                "week_52_low":    round(week52_low, 2),
-                "pct_from_high":  round(pct_from_high * 100, 2),
-                "pct_from_low":   round(pct_from_low  * 100, 2),
+                "week_52_low":    round(week52_low,  2),
+                "pct_from_high":  round(pct_from_high * 100, 2),  # day HIGH vs 52W high
+                "pct_from_low":   round(pct_from_low  * 100, 2),  # day LOW  vs 52W low
                 "volume_surge":   round(volume_surge,  2),
                 "vol_confirmed":  vol_confirmed,
                 "avg_vol_20d":    int(avg_vol_20d),
@@ -328,33 +335,45 @@ class DataEngine:
     def screen_from_nse_live(self, nse_stocks: list[dict]) -> dict:
         """
         Hybrid NSE-first screener.
-        Phase 1: filter by proximity (last_price vs year_high/year_low).
-                 Fallback-computes nearWKH/nearWKL if not in NSE payload.
-        Phase 2: yfinance 30-day history for volume surge.
+        Phase 1: filter by proximity using TODAY'S SESSION HIGH/LOW vs 52W extreme.
+                 Catches stocks that touched the zone intraday even if LTP has pulled back.
+                 Falls back to LTP if day_high/day_low not in NSE payload.
+        Phase 2: yfinance 30-day history for volume surge + confirm day high/low.
                  Signal is set on PROXIMITY alone; vol_confirmed is metadata.
         """
         threshold_pct = self.config.breakout_threshold * 100
         sleep_short   = self.config.rate_limit_sleep
         logger.info(f"NSE live screen | {len(nse_stocks)} stocks | threshold={threshold_pct:.1f}%")
 
+        def _f(v) -> Optional[float]:
+            """Safe float conversion."""
+            try:
+                return float(str(v).replace(",", "")) if v is not None else None
+            except (TypeError, ValueError):
+                return None
+
         # Phase 1
         candidates: list[dict] = []
         for s in nse_stocks:
-            wkh = s.get("near_wkh")
-            wkl = s.get("near_wkl")
-            lp = s.get("last_price"); yh = s.get("year_high"); yl = s.get("year_low")
-            try:
-                lp_f = float(lp) if lp is not None else None
-                yh_f = float(yh) if yh is not None else None
-                yl_f = float(yl) if yl is not None else None
-            except (TypeError, ValueError):
-                lp_f = yh_f = yl_f = None
-            if wkh is None and lp_f and yh_f and yh_f > 0:
-                wkh = (yh_f - lp_f) / yh_f * 100
+            lp_f = _f(s.get("last_price"))    # LTP  — fallback only
+            dh_f = _f(s.get("day_high")) or lp_f   # session HIGH — primary for BREAKOUT
+            dl_f = _f(s.get("day_low"))  or lp_f   # session LOW  — primary for BREAKDOWN
+            yh_f = _f(s.get("year_high"))
+            yl_f = _f(s.get("year_low"))
+
+            # Always recompute using day high/low (overrides NSE's LTP-based nearWKH/nearWKL)
+            if dh_f and yh_f and yh_f > 0:
+                wkh = (yh_f - dh_f) / yh_f * 100   # how far session HIGH is from 52W high
                 s["near_wkh"] = wkh
-            if wkl is None and lp_f and yl_f and yl_f > 0:
-                wkl = (lp_f - yl_f) / yl_f * 100
+            else:
+                wkh = s.get("near_wkh")   # use NSE pre-computed as last resort
+
+            if dl_f and yl_f and yl_f > 0:
+                wkl = (dl_f - yl_f) / yl_f * 100   # how far session LOW is from 52W low
                 s["near_wkl"] = wkl
+            else:
+                wkl = s.get("near_wkl")
+
             is_near_high = wkh is not None and wkh <= threshold_pct
             is_near_low  = wkl is not None and wkl <= threshold_pct
             if is_near_high or is_near_low:
@@ -441,6 +460,8 @@ class DataEngine:
                 "sector":        s.get("sector") or None,
                 "industry":      s.get("sector") or None,
                 "current_price": round(current_price, 2),
+                "day_high":      round(float(s.get("day_high") or current_price), 2),
+                "day_low":       round(float(s.get("day_low")  or current_price), 2),
                 "week_52_high":  round(year_high, 2),
                 "week_52_low":   round(year_low, 2),
                 "pct_from_high": round(pct_from_high * 100, 2),

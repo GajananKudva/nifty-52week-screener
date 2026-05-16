@@ -583,18 +583,12 @@ def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
         except (TypeError, ValueError):
             near_wkl = None
 
-        result.append({
-            "symbol":       sym,
-            "ticker":       f"{sym}.NS",
-            "company_name": (meta.get("companyName") or sym),
-            "sector":       (meta.get("industry") or ""),
-            "last_price":   stock.get("lastPrice"),
-            "year_high":    stock.get("yearHigh"),
-            "year_low":     stock.get("yearLow"),
-            "volume":       stock.get("totalTradedVolume"),
-            "pct_change":   stock.get("pChange"),
-            "near_wkh":     near_wkh,
-            "near_wkl":     near_wkl,
-        })
-
-    return result
+        # Today's intraday high/low — NSE returns these as dayHigh/dayLow
+        # Fall back to lastPrice if not present (e.g. pre-market or data gap)
+        raw_day_high = (stock.get("dayHigh") or stock.get("high")
+                        or stock.get("intradayHighPrice") or stock.get("lastPrice"))
+        raw_day_low  = (stock.get("dayLow")  or stock.get("low")
+                        or stock.get("intradayLowPrice")  or stock.get("lastPrice"))
+        try:
+            day_high = float(str(raw_day_high).replace(",", "")) if raw_day_high else None
+        except (TypeError, V
