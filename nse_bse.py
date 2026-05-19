@@ -591,4 +591,27 @@ def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
                         or stock.get("intradayLowPrice")  or stock.get("lastPrice"))
         try:
             day_high = float(str(raw_day_high).replace(",", "")) if raw_day_high else None
-        except (TypeError, V
+        except (TypeError, ValueError):
+            day_high = None
+        try:
+            day_low = float(str(raw_day_low).replace(",", "")) if raw_day_low else None
+        except (TypeError, ValueError):
+            day_low = None
+
+        result.append({
+            "symbol":       sym,
+            "ticker":       f"{sym}.NS",
+            "company_name": (meta.get("companyName") or sym),
+            "sector":       (meta.get("industry") or ""),
+            "last_price":   stock.get("lastPrice"),   # LTP — for display only
+            "day_high":     day_high,                 # today's session high — for signal detection
+            "day_low":      day_low,                  # today's session low  — for signal detection
+            "year_high":    stock.get("yearHigh"),
+            "year_low":     stock.get("yearLow"),
+            "volume":       stock.get("totalTradedVolume"),
+            "pct_change":   stock.get("pChange"),
+            "near_wkh":     near_wkh,   # NSE pre-computed (LTP-based) — overridden in engine
+            "near_wkl":     near_wkl,   # NSE pre-computed (LTP-based) — overridden in engine
+        })
+
+    return result
