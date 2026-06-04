@@ -1667,6 +1667,37 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
 
+@st.cache_data(ttl=3600, show_spinner=False)   # 1h — NSE CSV changes rarely
+def _fetch_index_tickers(universe: str) -> list[str]:
+    """Fetch current constituent list for any NSE index from the official NSE CSV."""
+    _NSE_CSV = {
+        "Nifty 500":          "ind_nifty500list.csv",
+        "Nifty 50":           "ind_nifty50list.csv",
+        "Nifty 100":          "ind_nifty100list.csv",
+        "Nifty Midcap 100":   "ind_niftymidcap100list.csv",
+        "Nifty Smallcap 100": "ind_niftysmallcap100list.csv",
+    }
+    filename = _NSE_CSV.get(universe)
+    if not filename:
+        return []
+    url = f"https://nsearchives.nseindia.com/content/indices/{filename}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Referer":    "https://www.nseindia.com/",
+        "Accept":     "text/html,*/*;q=0.9",
+    }
+    try:
+        import requests as _req
+        resp = _req.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        df = pd.read_csv(io.StringIO(resp.text))
+        symbols = df["Symbol"].dropna().str.strip().tolist()
+        tickers = [s + ".NS" for s in symbols if s]
+        return tickers
+    except Exception:
+        return []
+
+
 @st.cache_data(ttl=3600, show_spinner=False)    # 1h cache — yfinance is free but rate-sensitive
 def _cached_yfinance_context(ticker: str) -> str:
     """Cached wrapper for build_yfinance_context. Prevents repeated calls on spotlight re-renders."""
@@ -2453,15 +2484,19 @@ def main():
         _fetch_tape_data.clear()
 
     # ── Build ticker list ───────────────────────────────────────────────────
-    if p["universe"] == "Nifty 50 only":
-        tickers = _NIFTY_50
-    elif p["universe"] == "Custom" and p["custom_txt"].strip():
+    if p["universe"] == "Custom" and p["custom_txt"].strip():
         tickers = [t.strip() for t in p["custom_txt"].splitlines() if t.strip()]
     else:
-        tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
+        live = _fetch_index_tickers(p["universe"])
+        if live:
+            tickers = live
+        elif p["universe"] == "Nifty 50":
+            tickers = _NIFTY_50
+        else:
+            tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
 
-    # ── Run screen (on button click OR first page load) ────────────────────
-    if p["run"] or "screen_results" not in st.session_state:
+    # ── Run screen (only on explicit button click) ────────────────────────
+    if p["run"]:
         with st.status("Running screen…", expanded=True) as status:
             st.write(f"⬇ Downloading price history for {len(tickers)} stocks via yfinance…")
             results = _run_screen(tickers, p)
@@ -2471,14 +2506,19 @@ def main():
                 label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
                 state="complete", expanded=False,
             )
-    else:
+    elif "screen_results" in st.session_state:
         results = st.session_state["screen_results"]
+    else:
+        results = None
 
     if not results:
         st.markdown(
-            '<div style="text-align:center;padding:60px;color:#484F58;">'
-            '<div style="font-size:40px;">📊</div>'
-            '<div style="font-size:16px;margin-top:12px;">Press <b>▶ Run Screen</b> in the sidebar to start.</div>'
+            '<div style="text-align:center;padding:80px;color:#484F58;">'
+            '<div style="font-size:48px;">📊</div>'
+            '<div style="font-size:18px;font-weight:600;margin-top:16px;">Nifty 52-Week Screener</div>'
+            '<div style="font-size:14px;margin-top:8px;color:#6B7280;">'
+            'Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today\'s breakouts.'
+            '</div>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -2503,12 +2543,10 @@ def main():
             f"**No stocks hit a 52-week extreme today** (screen run at {ts}).\n\n"
             "The screener only flags stocks whose **session high** touched or exceeded "
             "the 52-week high, or whose **session low** touched or breached the 52-week low. "
-            "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
-            "✅ Data feed is working — "
-            f"{len(tickers)} stocks were screened via {'NSE live' if results.get('nse_used') else 'yfinance'}."
+               f"{len(tickers)} stocks were screened via {'NSE live' if results.get('nse_used') else 'yfinance'}."
         )
         if errors:
-            with st.expander(f"⚠ {len(errors)} fetch errors"):
+            with st.expander(f"\u26a0 {len(errors)} fetch errors"):
                 st.dataframe(pd.DataFrame(errors), use_container_width=True)
         return
 
@@ -2523,9 +2561,9 @@ def main():
     )
 
     t_hi, t_lo, t_err = st.tabs([
-        f"▲  Breakout Highs  ({len(highs_df)})",
-        f"▼  Breakdown Lows  ({len(lows_df)})",
-        f"⚠  Errors  ({len(errors)})",
+        f"\u25b2  Breakout Highs  ({len(highs_df)})",
+        f"\u25bc  Breakdown Lows  ({len(lows_df)})",
+        f"\u26a0  Errors  ({len(errors)})",
     ])
 
     with t_hi:
@@ -2535,4 +2573,28 @@ def main():
             if mask.any():
                 row = highs_df[mask].iloc[0].to_dict()
                 st.markdown("<hr/>", unsafe_allow_html=True)
-                _render
+                _render_spotlight(selected_hi, row, p)
+
+    with t_lo:
+        selected_lo = _render_signals_table(lows_df, key="lo")
+        if selected_lo and not lows_df.empty:
+            mask = lows_df["ticker"] == selected_lo
+            if mask.any():
+                row = lows_df[mask].iloc[0].to_dict()
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                _render_spotlight(selected_lo, row, p)
+
+    with t_err:
+        if not errors:
+            st.success("\u2705 No errors in the last run \u2014 all tickers processed cleanly.")
+        else:
+            err_df = pd.DataFrame(errors)
+            st.dataframe(err_df, use_container_width=True)
+
+    if p["auto_refresh"]:
+        time.sleep(60)
+        st.rerun()
+
+
+if __name__ == "__main__":
+    main()
