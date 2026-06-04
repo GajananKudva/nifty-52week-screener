@@ -186,20 +186,17 @@ html, body, [class*="css"] {
 /* ── Strip default Streamlit chrome ──────────────────────────────────────── */
 #MainMenu, footer, header { visibility: hidden; }
 
-/* ── Sidebar collapsed toggle (make visible on dark bg) ───────────────── */
-[data-testid="collapsedControl"] {
+/* ── Sidebar collapsed toggle ─────────────────────────────────────────── */
+[data-testid="collapsedControl"],
+[data-testid="collapsedControl"] button,
+[data-testid="collapsedControl"] svg {
     color: #E6EDF3 !important;
-    background-color: #161B22 !important;
-    border: 1px solid #21262D !important;
+    fill: #E6EDF3 !important;
+    background-color: #1E2535 !important;
+    border: 1px solid #30363D !important;
     border-radius: 0 6px 6px 0 !important;
-}
-
-/* ── Sidebar collapsed toggle (make visible on dark bg) ─────────────────── */
-[data-testid="collapsedControl"] {
-    color: #E6EDF3 !important;
-    background-color: #161B22 !important;
-    border: 1px solid #21262D !important;
-    border-radius: 0 6px 6px 0 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 .block-container {
     padding-top: 0 !important;
@@ -2477,6 +2474,24 @@ def _render_sidebar() -> dict:
 def main():
     # ── Inject styles ─────────────────────────────────────────────────────
     st.markdown(_CSS, unsafe_allow_html=True)
+
+    # ── Ensure sidebar toggle is always visible (JS fallback) ─────────────
+    st.markdown("""
+    <script>
+    (function patchToggle() {
+        var el = document.querySelector('[data-testid="collapsedControl"]');
+        if (el) {
+            el.style.backgroundColor = '#1E2535';
+            el.style.border = '1px solid #30363D';
+            el.style.borderRadius = '0 6px 6px 0';
+            var svgs = el.querySelectorAll('svg, path');
+            svgs.forEach(function(s){ s.style.fill = '#E6EDF3'; s.style.stroke = '#E6EDF3'; });
+        } else {
+            setTimeout(patchToggle, 300);
+        }
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
     # ── Ticker tape ────────────────────────────────────────────────────────
     _render_tape()
