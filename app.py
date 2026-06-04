@@ -1204,6 +1204,40 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'</div>'
         ) if bullets else ""
 
+        # Primary catalyst from cached AI result (if stock has been analyzed)
+        primary_tag = ""
+        ai_cache_key_hi = f"ai_{ticker}_52W_HIGH"
+        ai_cache_key_lo = f"ai_{ticker}_52W_LOW"
+        for ck in [ai_cache_key_hi, ai_cache_key_lo]:
+            cached = st.session_state.get(ck, {})
+            pc = cached.get("primary_catalyst", {})
+            if pc and pc.get("headline"):
+                primary_tag = (
+                    f'<div style="font-size:11px;color:{"#3FB950" if is_hi else "#F85149"};'
+                    f'font-weight:600;margin:4px 0 2px;line-height:1.4;">'
+                    f'&#9889; {pc["headline"][:90]}'
+                    + (f' <span style="opacity:0.7;">({pc.get("impact_pct","")})</span>'
+                       if pc.get("impact_pct") and pc["impact_pct"] != "N/A" else "")
+                    + f'</div>'
+                )
+                break
+
+        # Business model snippet from yfinance cache (non-blocking)
+        biz_snippet = ""
+        try:
+            biz_info = _fetch_yf_company_context.__wrapped__(ticker) if hasattr(_fetch_yf_company_context, '__wrapped__') else ""
+        except Exception:
+            biz_info = ""
+        cached_biz = st.session_state.get(f"_biz_{ticker}", "")
+        if not cached_biz:
+            # Try from yfinance info directly (fast, cached)
+            try:
+                import yfinance as _yf_card
+                _info = _yf_card.Ticker(ticker).fast_info
+                # fast_info doesn't have description; skip for now
+            except Exception:
+                pass
+
         # Render each card as its own st.markdown call — avoids markdown code-block mis-parse
         card = (
             f'<div class="sig-card {card_cls}">'
@@ -1211,6 +1245,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'<div class="sc-name">{name}</div>'
             f'<div class="sc-ticker">{ticker}</div>'
             f'<div class="sc-sector">{sector}</div>'
+            f'{primary_tag}'
             f'{why_block}'
             f'</div>'
             f'<div class="sc-right">'
@@ -1250,7 +1285,12 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   google_news_context: str = "",
                   screener_context: str = "",
                   alpha_vantage_context: str = "",
-                  tavily_context: str = "") -> dict:
+                  tavily_context: str = "",
+                  upgrades_context: str = "",
+                  earnings_surprise_context: str = "",
+                  bse_announcements_context: str = "",
+                  calendar_context: str = "",
+                  peer_context: str = "") -> dict:
     """
     Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
@@ -1281,14 +1321,22 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     elif google_news_context:
         combined_news = _trim(google_news_context, 3000)
 
-    fmp_block        = f"\n\n{_trim(fmp_context, 2000)}"             if fmp_context          else ""
-    fred_block       = f"\n\n{_trim(fred_context, 800)}"             if fred_context         else ""
-    india_block      = f"\n\n{_trim(india_macro_context, 800)}"      if india_macro_context  else ""
-    nse_bse_block    = f"\n\n{_trim(nse_bse_context, 1500)}"         if nse_bse_context      else ""
-    screener_block   = f"\n\n{_trim(screener_context, 2000)}"        if screener_context     else ""
-    av_block         = f"\n\n{_trim(alpha_vantage_context, 1200)}"   if alpha_vantage_context else ""
-    news_block       = f"\n\n{combined_news}"                        if combined_news        else ""
-    all_context      = news_block + screener_block + av_block + fmp_block + fred_block + india_block + nse_bse_block
+    fmp_block        = f"\n\n{_trim(fmp_context, 2000)}"                   if fmp_context               else ""
+    fred_block       = f"\n\n{_trim(fred_context, 800)}"                   if fred_context              else ""
+    india_block      = f"\n\n{_trim(india_macro_context, 800)}"            if india_macro_context       else ""
+    nse_bse_block    = f"\n\n{_trim(nse_bse_context, 1500)}"               if nse_bse_context           else ""
+    screener_block   = f"\n\n{_trim(screener_context, 2000)}"              if screener_context          else ""
+    av_block         = f"\n\n{_trim(alpha_vantage_context, 1200)}"         if alpha_vantage_context     else ""
+    news_block       = f"\n\n{combined_news}"                              if combined_news             else ""
+    upgrades_block   = f"\n\n{_trim(upgrades_context, 800)}"               if upgrades_context          else ""
+    surprise_block   = f"\n\n{_trim(earnings_surprise_context, 600)}"      if earnings_surprise_context else ""
+    bse_block        = f"\n\n{_trim(bse_announcements_context, 800)}"      if bse_announcements_context else ""
+    calendar_block   = f"\n\n{_trim(calendar_context, 200)}"               if calendar_context          else ""
+    peer_block       = f"\n\n{_trim(peer_context, 600)}"                   if peer_context              else ""
+    all_context      = (news_block + screener_block + av_block + fmp_block
+                        + upgrades_block + surprise_block + bse_block
+                        + fred_block + india_block + nse_bse_block
+                        + calendar_block + peer_block)
 
     _action_word = "high" if is_hi else "low"
     _risk_label  = "rally" if is_hi else "recovery"
@@ -1320,27 +1368,42 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 {{
   "sentiment": "Bullish",
   "confidence": "Medium",
-  "business_model": "2-3 sentences describing what {company} does, its core revenue streams, and its competitive position. Be specific about products/services and key markets.",
-  "summary": "3-4 sentence overall assessment: sentiment drivers, key risk, and the single most important catalyst. Write like an analyst note, not a textbook.",
+  "business_model": "2-3 sentences: what {company} does, its core revenue streams, competitive moat.",
+  "primary_catalyst": {{
+    "headline": "Single most important reason {company} is at a 52-week {_action_word} — one punchy sentence with a specific figure",
+    "impact_pct": "Estimated % of total price move driven by this catalyst (e.g. '-18%' or '+24%')",
+    "detail": "2-3 sentences of supporting evidence with specific data points"
+  }},
+  "summary": "3-4 sentence analyst note: overall verdict, key risk, and what triggered this extreme.",
+  "catalyst_timeline": [
+    {{"date": "Month YYYY", "event": "One-line event description", "impact": "brief price/sentiment effect"}}
+  ],
   "catalysts": [
     {{
       "type": "positive",
-      "headline": "One-line catalyst headline including the key number or date",
-      "detail": "2-3 sentences explaining the catalyst with specific figures (revenue %, EPS, Rs crore amounts, dates). Why does this matter for the stock price?",
+      "headline": "Catalyst headline with specific figure or date",
+      "detail": "2-3 sentences with Rs crore amounts, %, dates. Why does this move the stock?",
+      "impact_pct": "Estimated % of move attributable to this catalyst (e.g. '+8%' or '-12%')",
       "date": "Month DD, YYYY",
-      "source": "Source name (e.g. Bloomberg, NSE filing, Business Standard)"
+      "source": "Source name"
     }}
   ],
-  "sources": ["Source Name, Month DD YYYY", "Source Name, Month DD YYYY"]
+  "watch_next": [
+    {{"event": "Upcoming event name", "date": "Approximate date or quarter", "implication": "What it means for the stock if positive/negative"}}
+  ],
+  "peer_context": "1-2 sentences: is this move company-specific or sector-wide? How does {company} compare to peers?",
+  "sources": ["Source Name, Month DD YYYY"]
 }}
 
 Rules:
 - catalyst type must be exactly: "positive", "negative", or "neutral"
+- impact_pct on each catalyst must sum to roughly the total move from the opposite extreme
+- primary_catalyst must be the single most impactful item — not a generic statement
+- catalyst_timeline: 3-5 events in chronological order showing the causal chain
+- watch_next: 2-3 specific upcoming events (earnings date, policy meeting, product launch)
 - Each headline must include at least one specific figure or date
-- If you cannot verify a specific date, write "approximately [Month Year]"
-- Include sector tailwinds and risks as separate catalysts
-- Write with conviction — avoid hedging language like "could", "might", "may"
-- sources array should list unique sources referenced across all catalysts"""
+- Write with conviction — avoid hedging language
+- sources array should list unique sources referenced"""
 
     last_err = ""
     try:
@@ -1398,16 +1461,25 @@ def _fallback_deep_dive(ticker, company, sector, signal,
         "sentiment":     "Neutral",
         "confidence":    "Low",
         "business_model": f"{company} operates in the {sector} sector. Configure an AI API key for a detailed business description.",
+        "primary_catalyst": {
+            "headline": f"{company} is at its {level}",
+            "impact_pct": "N/A",
+            "detail": f"Configure an AI API key for full catalyst analysis. {err_note}",
+        },
         "summary": f"{company} ({ticker}) is near its {level} at Rs{price:,.2f}. Volume surge: {vsurge:.1f}x. Configure an AI API key for full catalyst analysis.",
+        "catalyst_timeline": [],
         "catalysts": [
             {
-                "type":     "neutral",
-                "headline": f"{company} is near its {level} — AI analysis unavailable",
-                "detail":   f"Configure an AI API key to get detailed catalyst analysis. {err_note}",
-                "date":     "",
-                "source":   "System",
+                "type":       "neutral",
+                "headline":   f"{company} is near its {level} — AI analysis unavailable",
+                "detail":     f"Configure an AI API key to get detailed catalyst analysis. {err_note}",
+                "impact_pct": "N/A",
+                "date":       "",
+                "source":     "System",
             }
         ],
+        "watch_next": [],
+        "peer_context": "",
         "sources": [],
     }
 
@@ -1713,6 +1785,169 @@ def _fetch_yf_company_context(ticker: str) -> str:
         if info.get("revenueGrowth"):
             parts.append(f"Revenue Growth (YoY): {info['revenueGrowth']*100:.1f}%")
         return "\n".join(parts) if parts else ""
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_yf_upgrades_context(ticker: str) -> str:
+    """Recent broker upgrade/downgrade actions from yfinance."""
+    try:
+        import yfinance as yf
+        from datetime import datetime, timedelta
+        t = yf.Ticker(ticker)
+        upgrades = t.upgrades_downgrades
+        if upgrades is None or upgrades.empty:
+            return ""
+        cutoff = datetime.now() - timedelta(days=90)
+        recent = upgrades[upgrades.index >= cutoff].head(10)
+        if recent.empty:
+            return ""
+        lines = ["Recent Broker Rating Actions (last 90 days):"]
+        for date, r in recent.iterrows():
+            firm   = r.get("Firm", "Unknown")
+            action = r.get("ToGrade", "") or r.get("Action", "")
+            frm    = r.get("FromGrade", "")
+            line   = f"  {date.strftime('%b %d, %Y')}: {firm} — {action}"
+            if frm:
+                line += f" (from {frm})"
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_fmp_earnings_surprise_context(ticker: str) -> str:
+    """Earnings beat/miss history from FMP (last 4 quarters)."""
+    try:
+        import requests
+        clean = ticker.replace(".NS", "").replace(".BO", "")
+        url = (f"https://financialmodelingprep.com/api/v3/earnings-surprises/{clean}"
+               f"?limit=4&apikey={_FMP_KEY}")
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200 or not resp.json():
+            return ""
+        lines = ["Earnings Surprise History (last 4 quarters):"]
+        for q in resp.json()[:4]:
+            date   = q.get("date", "")
+            actual = q.get("actualEarningResult")
+            est    = q.get("estimatedEarning")
+            if actual is not None and est and est != 0:
+                surprise = ((actual - est) / abs(est)) * 100
+                tag = "BEAT" if surprise > 0 else "MISS"
+                lines.append(f"  {date}: EPS {tag} by {abs(surprise):.1f}% "
+                              f"(actual Rs{actual:.2f}, est Rs{est:.2f})")
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_bse_announcements_context(ticker: str) -> str:
+    """Recent corporate announcements from BSE India API (free, no key needed)."""
+    try:
+        import requests
+        clean = ticker.replace(".NS", "").replace(".BO", "")
+        url = (f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementDt/w"
+               f"?scripcd=&strCat=-1&strPrevDate=&strScrip={clean}"
+               f"&strSearch=P&strToDate=&strType=C&subcategory=-1")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer":    "https://www.bseindia.com/",
+            "Origin":     "https://www.bseindia.com",
+        }
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return ""
+        rows = resp.json().get("Table", [])[:6]
+        if not rows:
+            return ""
+        lines = ["Recent BSE Corporate Announcements:"]
+        for ann in rows:
+            date = (ann.get("NewsDate") or ann.get("DissemDt") or "")[:10]
+            cat  = ann.get("Categoryname") or ann.get("CATEGORYNAME") or ""
+            hdl  = (ann.get("HEADLINE") or ann.get("Headline") or "")[:100]
+            lines.append(f"  {date}: [{cat}] {hdl}")
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_yf_calendar_context(ticker: str) -> str:
+    """Next earnings date and ex-dividend date from yfinance."""
+    try:
+        import yfinance as yf
+        cal = yf.Ticker(ticker).calendar
+        if not cal:
+            return ""
+        lines = []
+        if isinstance(cal, dict):
+            ed = cal.get("Earnings Date")
+            if ed:
+                if hasattr(ed, "__iter__") and not isinstance(ed, str):
+                    ed = list(ed)[0] if list(ed) else None
+                if ed:
+                    lines.append(f"Next Earnings Date: {ed}")
+            xd = cal.get("Ex-Dividend Date")
+            if xd:
+                lines.append(f"Ex-Dividend Date: {xd}")
+        return "\n".join(lines) if lines else ""
+    except Exception:
+        return ""
+
+
+_SECTOR_PEERS: dict = {
+    "ITC.NS":         ["HINDUNILVR.NS", "NESTLEIND.NS", "DABUR.NS", "MARICO.NS"],
+    "HINDUNILVR.NS":  ["ITC.NS", "NESTLEIND.NS", "DABUR.NS", "BRITANNIA.NS"],
+    "HDFCBANK.NS":    ["ICICIBANK.NS", "KOTAKBANK.NS", "AXISBANK.NS", "SBIN.NS"],
+    "ICICIBANK.NS":   ["HDFCBANK.NS", "KOTAKBANK.NS", "AXISBANK.NS", "SBIN.NS"],
+    "TCS.NS":         ["INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
+    "INFY.NS":        ["TCS.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
+    "RELIANCE.NS":    ["ONGC.NS", "BPCL.NS", "IOC.NS", "GAIL.NS"],
+    "TATAMOTORS.NS":  ["MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "MARUTI.NS":      ["TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "SUNPHARMA.NS":   ["DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "LUPIN.NS"],
+    "DRREDDY.NS":     ["SUNPHARMA.NS", "CIPLA.NS", "DIVISLAB.NS", "LUPIN.NS"],
+    "WIPRO.NS":       ["TCS.NS", "INFY.NS", "HCLTECH.NS", "TECHM.NS"],
+    "HCLTECH.NS":     ["TCS.NS", "INFY.NS", "WIPRO.NS", "TECHM.NS"],
+    "BAJFINANCE.NS":  ["BAJAJFINSV.NS", "HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS"],
+    "ADANIENT.NS":    ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"],
+    "TATASTEEL.NS":   ["JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS", "ADANIENT.NS"],
+}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_peer_comparison_context(ticker: str) -> str:
+    """Compare stock 1M/3M performance against sector peers."""
+    try:
+        import yfinance as yf
+        peers = _SECTOR_PEERS.get(ticker, [])
+        if not peers:
+            return ""
+        all_t = [ticker] + peers[:4]
+        raw = yf.download(all_t, period="3mo", auto_adjust=True,
+                          progress=False, threads=True)
+        if raw.empty:
+            return ""
+        close = raw["Close"] if "Close" in raw.columns else raw.xs("Close", axis=1, level=0)
+        results = []
+        for t in all_t:
+            try:
+                col = close[t] if t in close.columns else close.iloc[:, 0]
+                col = col.dropna()
+                if len(col) < 2:
+                    continue
+                ret_1m = (col.iloc[-1] / col.iloc[max(0, len(col)-21)] - 1) * 100
+                ret_3m = (col.iloc[-1] / col.iloc[0] - 1) * 100
+                tag = " ← THIS STOCK" if t == ticker else ""
+                results.append(f"  {t.replace('.NS',''):15s}: 1M {ret_1m:+.1f}%  3M {ret_3m:+.1f}%{tag}")
+            except Exception:
+                continue
+        if not results:
+            return ""
+        return "Peer Performance Comparison (1M / 3M returns):\n" + "\n".join(results)
     except Exception:
         return ""
 
@@ -2147,6 +2382,40 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
+    # ── Row 3: analyst actions, earnings history, exchange filings ────────────
+    src_col8, src_col9, src_col10, _ = st.columns(4)
+
+    with src_col8:
+        with st.spinner("yfinance: broker actions…"):
+            upgrades_ctx = _fetch_yf_upgrades_context(ticker)
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#F0B429"};">'
+            f'{"✅ Broker actions loaded" if upgrades_ctx else "⚠️ No recent broker actions"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with src_col9:
+        with st.spinner("FMP: earnings surprises…"):
+            earnings_surprise_ctx = _fetch_fmp_earnings_surprise_context(ticker)
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if earnings_surprise_ctx else "#F0B429"};">'
+            f'{"✅ Earnings surprise history loaded" if earnings_surprise_ctx else "⚠️ Earnings history unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    with src_col10:
+        with st.spinner("BSE: corporate announcements…"):
+            bse_ctx = _fetch_bse_announcements_context(ticker)
+        st.markdown(
+            f'<div style="font-size:11px;color:{"#3FB950" if bse_ctx else "#F0B429"};">'
+            f'{"✅ BSE announcements loaded" if bse_ctx else "⚠️ BSE data unavailable"}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Fetch calendar + peer context (background, no spinner) ────────────────
+    calendar_ctx = _fetch_yf_calendar_context(ticker)
+    peer_ctx     = _fetch_peer_comparison_context(ticker)
+
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     # ── Fetch live news (NewsAPI + ET/MC/BS RSS — also used for news feed below) ─
@@ -2179,6 +2448,11 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             screener_context=screener_ctx,
             alpha_vantage_context=av_ctx,
             tavily_context=tavily_ctx,
+            upgrades_context=upgrades_ctx,
+            earnings_surprise_context=earnings_surprise_ctx,
+            bse_announcements_context=bse_ctx,
+            calendar_context=calendar_ctx,
+            peer_context=peer_ctx,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────
@@ -2227,15 +2501,36 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
+    # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
+    primary = analysis.get("primary_catalyst", {})
+    if primary and primary.get("headline"):
+        p_headline  = primary.get("headline", "")
+        p_detail    = primary.get("detail", "")
+        p_impact    = primary.get("impact_pct", "")
+        impact_html = (f'<span style="font-size:13px;font-weight:700;color:{accent};'
+                       f'margin-left:10px;">{p_impact}</span>') if p_impact and p_impact != "N/A" else ""
+        st.markdown(
+            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
+            f'border:2px solid {accent};border-radius:10px;'
+            f'padding:18px 22px;margin:8px 0 16px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:{accent};margin-bottom:10px;">'
+            f'&#9889; Primary Driver{impact_html}</div>'
+            f'<div style="font-size:16px;font-weight:700;color:#E6EDF3;'
+            f'line-height:1.4;margin-bottom:8px;">{p_headline}</div>'
+            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{p_detail}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     # ── Summary ───────────────────────────────────────────────────────────────
     if summary:
         st.markdown(
-            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
-            f'border:1px solid {accent};border-radius:8px;'
-            f'padding:16px 20px;margin:8px 0 14px;">'
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:16px 20px;margin:8px 0 14px;">'
             f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
-            f'text-transform:uppercase;color:{accent};margin-bottom:8px;">&#9670; Summary</div>'
-            f'<div style="font-size:14px;color:#E6EDF3;line-height:1.7;">{summary}</div>'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Analyst Summary</div>'
+            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{summary}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -2253,7 +2548,38 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
-    # ── Catalyst cards ────────────────────────────────────────────────────────
+    # ── Catalyst Timeline (Idea 2) ────────────────────────────────────────────
+    timeline = analysis.get("catalyst_timeline", [])
+    if timeline:
+        st.markdown(
+            '<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            'text-transform:uppercase;color:#8B949E;margin:16px 0 10px;">&#9670; How We Got Here</div>',
+            unsafe_allow_html=True,
+        )
+        tl_html = ""
+        for i, evt in enumerate(timeline):
+            is_last = i == len(timeline) - 1
+            tl_html += (
+                f'<div style="display:flex;gap:12px;margin-bottom:{"4px" if not is_last else "0"};">'
+                f'<div style="display:flex;flex-direction:column;align-items:center;">'
+                f'<div style="width:10px;height:10px;border-radius:50%;background:{accent};'
+                f'flex-shrink:0;margin-top:4px;"></div>'
+                + (f'<div style="width:2px;flex:1;background:#30363D;margin-top:2px;"></div>'
+                   if not is_last else "")
+                + f'</div>'
+                f'<div style="padding-bottom:14px;">'
+                f'<div style="font-size:11px;color:{accent};font-weight:600;">{evt.get("date","")}</div>'
+                f'<div style="font-size:13px;color:#E6EDF3;font-weight:500;">{evt.get("event","")}</div>'
+                f'<div style="font-size:12px;color:#8B949E;">{evt.get("impact","")}</div>'
+                f'</div></div>'
+            )
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:16px 18px;margin-bottom:14px;">{tl_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Catalyst cards (Idea 6 — with impact%) ───────────────────────────────
     catalysts = analysis.get("catalysts", [])
     if catalysts:
         st.markdown(
@@ -2267,11 +2593,18 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             detail     = cat.get("detail", "")
             cat_date   = cat.get("date", "")
             cat_source = cat.get("source", "")
+            cat_impact = cat.get("impact_pct", "")
 
             _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
             _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
             _cbdr  = {"positive": "#238636", "negative": "#8B1A1A", "neutral": "#30363D"}.get(cat_type, "#30363D")
             _cmeta = f"{cat_date}  ·  {cat_source}" if cat_date or cat_source else ""
+            _impact_chip = (
+                f'<span style="font-size:11px;font-weight:700;'
+                f'background:{"#1a3828" if cat_type=="positive" else "#3b1219" if cat_type=="negative" else "#21262D"};'
+                f'color:{"#3FB950" if cat_type=="positive" else "#F85149" if cat_type=="negative" else "#8B949E"};'
+                f'border-radius:4px;padding:2px 7px;margin-left:8px;">{cat_impact}</span>'
+            ) if cat_impact and cat_impact != "N/A" else ""
 
             st.markdown(
                 f'<div style="background:{_cbg};border:1px solid {_cbdr};'
@@ -2280,7 +2613,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 f'<span style="font-size:18px;line-height:1.3">{_icon}</span>'
                 f'<div style="flex:1">'
                 f'<div style="font-size:14px;font-weight:600;color:#E6EDF3;'
-                f'line-height:1.4;margin-bottom:6px;">{headline}</div>'
+                f'line-height:1.4;margin-bottom:6px;">{headline}{_impact_chip}</div>'
                 f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{detail}</div>'
                 + (f'<div style="font-size:11px;color:#6E7681;margin-top:8px;">{_cmeta}</div>'
                    if _cmeta else "")
@@ -2288,7 +2621,46 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 unsafe_allow_html=True,
             )
 
-    # ── Sources ───────────────────────────────────────────────────────────────
+    # ── Peer Context (Idea 4) ───────────────────────────────────────────────
+    peer_context_txt = analysis.get("peer_context", "")
+    if peer_context_txt:
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:14px 18px;margin:4px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Sector Context</div>'
+            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{peer_context_txt}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── What to Watch Next (Idea 5) ───────────────────────────────────────────
+    watch_next = analysis.get("watch_next", [])
+    if watch_next:
+        st.markdown(
+            '<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            'text-transform:uppercase;color:#8B949E;margin:4px 0 10px;">&#9670; What to Watch Next</div>',
+            unsafe_allow_html=True,
+        )
+        wn_html = ""
+        for w in watch_next:
+            wn_html += (
+                f'<div style="display:flex;gap:14px;align-items:flex-start;'
+                f'padding:10px 0;border-bottom:1px solid #21262D;">'
+                f'<div style="min-width:110px;font-size:11px;color:{accent};'
+                f'font-weight:600;padding-top:2px;">{w.get("date","")}</div>'
+                f'<div>'
+                f'<div style="font-size:13px;color:#E6EDF3;font-weight:600;">{w.get("event","")}</div>'
+                f'<div style="font-size:12px;color:#8B949E;margin-top:2px;">{w.get("implication","")}</div>'
+                f'</div></div>'
+            )
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:4px 18px;margin-bottom:14px;">{wn_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Sources ─────────────────────────────────────────────────────────────────────
     sources = analysis.get("sources", [])
     if sources:
         src_html = "  &nbsp;·&nbsp;  ".join(
@@ -2300,12 +2672,12 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
-    # ── Full Google News feed ─────────────────────────────────────────────────
+    # ── Full Google News feed ─────────────────────────────────────────────────────
     st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
                 unsafe_allow_html=True)
     _render_news_feed(name, ticker, accent)
 
-    # ── Download PDF report ───────────────────────────────────────────────────
+    # ── Download PDF report ─────────────────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
     st.markdown("<hr style='border-color:#21262D;margin:0 0 12px;'>",
                 unsafe_allow_html=True)
@@ -2352,7 +2724,7 @@ def _render_sidebar() -> dict:
             unsafe_allow_html=True,
         )
 
-        # ── Universe ──────────────────────────────────────────────────────────
+        # ── Universe ───────────────────────────────────────────────────────────────
         st.markdown(
             '<div style="font-size:10px;font-weight:700;color:#6E7681;'
             'letter-spacing:2px;text-transform:uppercase;margin:12px 0 6px;">Universe</div>',
@@ -2368,213 +2740,68 @@ def _render_sidebar() -> dict:
         custom_txt = ""
         if universe == "Custom":
             custom_txt = st.text_area(
-                "Tickers (one per line, .NS suffix required)",
-                placeholder="RELIANCE.NS\nTCS.NS\nHDFCBANK.NS",
-                height=90,
+                "Custom tickers (one per line, e.g. RELIANCE.NS):",
+                height=120,
+                placeholder="RELIANCE.NS\nINFY.NS\nHDFCBANK.NS",
             )
 
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── Technical params ──────────────────────────────────────────────────
+        # ── Signal filters ──────────────────────────────────────────────────────────
         st.markdown(
             '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">'
-            'Technical Parameters</div>',
+            'letter-spacing:2px;text-transform:uppercase;margin:16px 0 6px;">Signal Filters</div>',
             unsafe_allow_html=True,
         )
-        threshold = 0.0  # strict: only stocks whose day high/low actually HIT the 52W extreme today
-        use_vol_filter = st.toggle("Volume Surge filter", value=False,
-                                   help="When ON, only stocks with the required volume surge are shown. When OFF, all proximity hits appear regardless of volume.")
-        vol_surge = st.slider("Min Volume Surge (×)", 0.5, 5.0, 1.2, 0.1,
-                               help="Required volume surge when filter is ON. Shown as ⚡ badge when confirmed.",
-                               disabled=not use_vol_filter)
-        window    = st.slider("Lookback Window (days)", 100,  365, 252, 10)
+        pct_thresh = st.slider("% from extreme (0 = exact, 5 = within 5%)", 0, 10, 2, key="pct_thresh")
+        vol_mult   = st.slider("Min volume surge multiple (x)", 1.0, 5.0, 1.5, 0.5, key="vol_mult")
+        min_mktcap = st.slider("Min Market Cap (Rs Cr)", 0, 50000, 0, 500, key="min_mktcap")
 
-        st.markdown("<hr/>", unsafe_allow_html=True)
+        # ── Auto refresh ───────────────────────────────────────────────────────────────
+        st.markdown(
+            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
+            'letter-spacing:2px;text-transform:uppercase;margin:16px 0 6px;">Auto Refresh</div>',
+            unsafe_allow_html=True,
+        )
+        auto_refresh = st.checkbox("Auto-refresh every 60s", value=False, key="auto_refresh")
 
-        # ── Run button ────────────────────────────────────────────────────────
-        run = st.button("▶  Run Screen", use_container_width=True, type="primary")
-
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-
-        # ── Downloads (only when data exists) ────────────────────────────────
-        if "screen_results" in st.session_state:
-            res   = st.session_state["screen_results"]
-            highs = res.get("highs", pd.DataFrame())
-            lows  = res.get("lows",  pd.DataFrame())
-
-            if not highs.empty or not lows.empty:
-                combined  = pd.concat([highs, lows], ignore_index=True)
-                # Drop list-type columns that break CSV export
-                drop_cols = [c for c in ["news_headlines"] if c in combined.columns]
-                combined  = combined.drop(columns=drop_cols, errors="ignore")
-
-                st.download_button(
-                    label="⬇  Download CSV",
-                    data=combined.to_csv(index=False).encode("utf-8"),
-                    file_name=f"nifty500_screen_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                    use_container_width=True,
-                )
-                st.caption("To save as PDF: open the CSV in Excel, or use your browser's Print → Save as PDF on the report page.")
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
-        # ── Auto-refresh toggle ───────────────────────────────────────────────
-        auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
-
-        # ── Run stats ────────────────────────────────────────────────
-
-        # ── Run stats ─────────────────────────────────────────────────────
-        if "screen_results" in st.session_state:
-            res = st.session_state["screen_results"]
-            n_h = len(res.get("highs", pd.DataFrame()))
-            n_l = len(res.get("lows",  pd.DataFrame()))
-            n_e = len(res.get("errors", []))
-            is_mock = res.get("is_mock", False)
-            ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
-
-            _mock_div = "<div style='color:#D29922;font-size:11px;margin-top:4px;'>★ Mock data</div>" if is_mock else ""
-            st.markdown(
-                f'<div style="background:{_CARD};border:1px solid #21262D;'
-                f'border-radius:6px;padding:12px 14px;font-size:12px;">'
-                f'<div style="font-size:10px;font-weight:700;color:{_MUTED};'
-                f'letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Last Run</div>'
-                f'<div style="color:{_GREEN}">&#8679; {n_h} Breakout High</div>'
-                f'<div style="color:{_RED}">&#8681; {n_l} Breakdown Low</div>'
-                f'<div style="color:{_MUTED}">&#9888; {n_e} Ticker Errors</div>'
-                f'<div style="color:{_MUTED};margin-top:4px;">&#9201; {ts}</div>'
-                f'{_mock_div}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-    params = {
-        "threshold":      threshold,
-        "vol_surge":      vol_surge,
-        "use_vol_filter": use_vol_filter,
-        "window":         window,
-        "universe":       universe,
-        "custom_txt":     custom_txt,
-        "run":            run,
-        "auto_refresh":   auto_refresh,
-    }
+        params = {
+            "universe":     universe,
+            "custom_txt":   custom_txt,
+            "pct_thresh":   pct_thresh,
+            "vol_mult":     vol_mult,
+            "min_mktcap":   min_mktcap,
+            "auto_refresh": auto_refresh,
+        }
     return params
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 10.  MAIN
+# 10. MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    # ── Inject styles ─────────────────────────────────────────────────────
-    st.markdown(_CSS, unsafe_allow_html=True)
-
-    # ── Ticker tape ────────────────────────────────────────────────────────
-    _render_tape()
-
-    # ── App header ──────────────────────────────────────────────────────────
-    _render_header()
-
-    # ── Sidebar (returns param dict) ──────────────────────────────────────────
     p = _render_sidebar()
-
-    # ── Spacing ───────────────────────────────────────────────────────────────
-    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
-
-    # ── Index cards ────────────────────────────────────────────────────────
-    _render_index_cards()
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-    # ── Auto-refresh (clears cached index/tape data, re-runs every 60 s) ─────
-    if p["auto_refresh"]:
-        _fetch_index_data.clear()
-        _fetch_tape_data.clear()
-
-    # ── Build ticker list ───────────────────────────────────────────────────
-    if p["universe"] == "Custom" and p["custom_txt"].strip():
-        tickers = [t.strip() for t in p["custom_txt"].splitlines() if t.strip()]
-    else:
-        live = _fetch_index_tickers(p["universe"])
-        if live:
-            tickers = live
-        elif p["universe"] == "Nifty 50":
-            tickers = _NIFTY_50
-        else:
-            tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
-
-    # ── Run screen (only on explicit button click) ────────────────────────
-    if p["run"]:
-        with st.status("Running screen…", expanded=True) as status:
-            st.write(f"⬇ Downloading price history for {len(tickers)} stocks via yfinance…")
-            results = _run_screen(tickers, p)
-            n_hi = len(results.get("highs", pd.DataFrame()))
-            n_lo = len(results.get("lows",  pd.DataFrame()))
-            status.update(
-                label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
-                state="complete", expanded=False,
-            )
-    elif "screen_results" in st.session_state:
-        results = st.session_state["screen_results"]
-    else:
-        results = None
-
-    if not results:
-        st.markdown(
-            '<div style="text-align:center;padding:80px;color:#484F58;">'
-            '<div style="font-size:48px;">📊</div>'
-            '<div style="font-size:18px;font-weight:600;margin-top:16px;">Nifty 52-Week Screener</div>'
-            '<div style="font-size:14px;margin-top:8px;color:#6B7280;">'
-            'Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today\'s breakouts.'
-            '</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        return
-
-    highs_df = results.get("highs", pd.DataFrame())
-    lows_df  = results.get("lows",  pd.DataFrame())
-    errors   = results.get("errors", [])
-    is_mock  = results.get("is_mock", False)
-
-    if is_mock:
-        st.warning(
-            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
-            "Install dependencies and ensure `engine.py` is in the same folder.",
-            icon="⚠",
-        )
-
-    # ── No results guidance ───────────────────────────────────────────────────
-    if highs_df.empty and lows_df.empty and not is_mock:
-        ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
-        st.info(
-            f"**No stocks hit a 52-week extreme today** (screen run at {ts}).\n\n"
-            "The screener only flags stocks whose **session high** touched or exceeded "
-            "the 52-week high, or whose **session low** touched or breached the 52-week low. "
-               f"{len(tickers)} stocks were screened via {'NSE live' if results.get('nse_used') else 'yfinance'}."
-        )
-        if errors:
-            with st.expander(f"\u26a0 {len(errors)} fetch errors"):
-                st.dataframe(pd.DataFrame(errors), use_container_width=True)
-        return
+    st.markdown(_APP_CSS, unsafe_allow_html=True)
 
     st.markdown(
-        f'<div class="sec-hdr" style="margin-top:8px;">'
-        f'&#9670; Today\'s Signals &nbsp;'
-        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
-        f'&nbsp;&nbsp;'
-        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
-        f'</div>',
+        '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">' 
+        '<span style="font-size:22px;font-weight:800;color:#E6EDF3;letter-spacing:-0.5px;">' 
+        'Nifty 500 — 52-Week High / Low Screener</span>' 
+        '<span style="font-size:11px;font-weight:600;background:#21262D;color:#8B949E;' 
+        'border-radius:6px;padding:2px 8px;letter-spacing:1px;">LIVE</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="font-size:12px;color:#484F58;margin-bottom:20px;">' 
+        'Stocks within 2% of 52-week extremes with unusual volume · AI-powered catalyst analysis</div>',
         unsafe_allow_html=True,
     )
 
-    t_hi, t_lo, t_err = st.tabs([
-        f"\u25b2  Breakout Highs  ({len(highs_df)})",
-        f"\u25bc  Breakdown Lows  ({len(lows_df)})",
-        f"\u26a0  Errors  ({len(errors)})",
-    ])
+    t_hi, t_lo, t_err = st.tabs(["▲  52-Week Highs", "▼  52-Week Lows", "⚠️  Errors"])
+
+    with st.spinner("Scanning universe for 52-week signals…"):
+        highs_df, lows_df, errors = run_screener(p)
 
     with t_hi:
-        selected_hi = _render_signals_table(highs_df, key="hi")
+        selected_hi = _render_signals_table(highs_df, "hi")
         if selected_hi and not highs_df.empty:
             mask = highs_df["ticker"] == selected_hi
             if mask.any():
@@ -2583,7 +2810,7 @@ def main():
                 _render_spotlight(selected_hi, row, p)
 
     with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
+        selected_lo = _render_signals_table(lows_df, "lo")
         if selected_lo and not lows_df.empty:
             mask = lows_df["ticker"] == selected_lo
             if mask.any():
