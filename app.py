@@ -2778,30 +2778,115 @@ def _render_sidebar() -> dict:
 # 10. MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    p = _render_sidebar()
+    # ── Inject styles ──────────────────────────────────────────────────────
     st.markdown(_CSS, unsafe_allow_html=True)
 
+    # ── Ticker tape ────────────────────────────────────────────────────────
+    _render_tape()
+
+    # ── App header ─────────────────────────────────────────────────────────
+    _render_header()
+
+    # ── Sidebar ────────────────────────────────────────────────────────────
+    p = _render_sidebar()
+
+    # ── Spacing ────────────────────────────────────────────────────────────
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    # ── Index cards ────────────────────────────────────────────────────────
+    _render_index_cards()
+    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+    # ── Auto-refresh clears cached data ───────────────────────────────────
+    if p["auto_refresh"]:
+        _fetch_index_data.clear()
+        _fetch_tape_data.clear()
+
+    # ── Build ticker list ──────────────────────────────────────────────────
+    if p["universe"] == "Custom" and p["custom_txt"].strip():
+        tickers = [t.strip() for t in p["custom_txt"].splitlines() if t.strip()]
+    else:
+        live = _fetch_index_tickers(p["universe"])
+        if live:
+            tickers = live
+        elif p["universe"] == "Nifty 50":
+            tickers = _NIFTY_50
+        else:
+            tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
+
+    # ── Run screen (only on explicit button click) ─────────────────
+    if p["run"]:
+        with st.status("Running screen…", expanded=True) as status:
+            st.write(f"⬇ Downloading price history for {len(tickers)} stocks via yfinance…")
+            results = _run_screen(tickers, p)
+            n_hi = len(results.get("highs", pd.DataFrame()))
+            n_lo = len(results.get("lows",  pd.DataFrame()))
+            status.update(
+                label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
+                state="complete", expanded=False,
+            )
+    elif "screen_results" in st.session_state:
+        results = st.session_state["screen_results"]
+    else:
+        results = None
+
+    if not results:
+        st.markdown(
+            '<div style="text-align:center;padding:80px;color:#484F58;">'
+            '<div style="font-size:48px;">📊</div>'
+            '<div style="font-size:18px;font-weight:600;margin-top:16px;">Nifty 52-Week Screener</div>'
+            '<div style="font-size:14px;margin-top:8px;color:#6B7280;">'
+            'Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today\'s breakouts.'
+            '</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    highs_df = results.get("highs", pd.DataFrame())
+    lows_df  = results.get("lows",  pd.DataFrame())
+    errors   = results.get("errors", [])
+    is_mock  = results.get("is_mock", False)
+
+    if is_mock:
+        st.warning(
+            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
+            "Install dependencies and ensure `engine.py` is in the same folder.",
+            icon="⚠",
+        )
+
+    if highs_df.empty and lows_df.empty and not is_mock:
+        ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
+        st.info(
+            f"**No stocks hit a 52-week extreme today** (screen run at {ts}).\n\n"
+            "The screener only flags stocks whose **session high** touched or exceeded "
+            "the 52-week high, or whose **session low** touched or breached the 52-week low. "
+            "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
+            f"✅ Data feed is working — {len(tickers)} stocks were screened via yfinance."
+        )
+        if errors:
+            with st.expander(f"⚠ {len(errors)} fetch errors"):
+                st.dataframe(pd.DataFrame(errors), use_container_width=True)
+        return
+
     st.markdown(
-        '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">' 
-        '<span style="font-size:22px;font-weight:800;color:#E6EDF3;letter-spacing:-0.5px;">' 
-        'Nifty 500 — 52-Week High / Low Screener</span>' 
-        '<span style="font-size:11px;font-weight:600;background:#21262D;color:#8B949E;' 
-        'border-radius:6px;padding:2px 8px;letter-spacing:1px;">LIVE</span></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div style="font-size:12px;color:#484F58;margin-bottom:20px;">' 
-        'Stocks within 2% of 52-week extremes with unusual volume · AI-powered catalyst analysis</div>',
+        f'<div class="sec-hdr" style="margin-top:8px;">'
+        f'&#9670; Today\'s Signals &nbsp;'
+        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
+        f'&nbsp;&nbsp;'
+        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
-    t_hi, t_lo, t_err = st.tabs(["▲  52-Week Highs", "▼  52-Week Lows", "⚠️  Errors"])
-
-    with st.spinner("Scanning universe for 52-week signals…"):
-        highs_df, lows_df, errors = run_screener(p)
+    t_hi, t_lo, t_err = st.tabs([
+        f"▲  Breakout Highs  ({len(highs_df)})",
+        f"▼  Breakdown Lows  ({len(lows_df)})",
+        f"⚠  Errors  ({len(errors)})",
+    ])
 
     with t_hi:
-        selected_hi = _render_signals_table(highs_df, "hi")
+        selected_hi = _render_signals_table(highs_df, key="hi")
         if selected_hi and not highs_df.empty:
             mask = highs_df["ticker"] == selected_hi
             if mask.any():
@@ -2810,7 +2895,7 @@ def main():
                 _render_spotlight(selected_hi, row, p)
 
     with t_lo:
-        selected_lo = _render_signals_table(lows_df, "lo")
+        selected_lo = _render_signals_table(lows_df, key="lo")
         if selected_lo and not lows_df.empty:
             mask = lows_df["ticker"] == selected_lo
             if mask.any():
@@ -2820,7 +2905,7 @@ def main():
 
     with t_err:
         if not errors:
-           st.success("✅ No errors in the last run — all tickers processed cleanly.")
+            st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
             st.dataframe(err_df, use_container_width=True)
