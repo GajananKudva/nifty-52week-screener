@@ -1194,49 +1194,77 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         else:
             vol_str = ""
 
-        # Build insight bullets
-        bullets = _build_why_bullets(dict(row), is_hi)
-        bullet_html = "".join(f"<li>{b}</li>" for b in bullets)
-        why_block = (
-            f'<div class="sc-why">'
-            f'<div class="sc-why-lbl">Why this level</div>'
-            f'<ul>{bullet_html}</ul>'
-            f'</div>'
-        ) if bullets else ""
+        # ── Business model (1 sentence from yfinance, cached) ───────────────
+        biz_line = ""
+        try:
+            biz_ctx = _fetch_yf_company_context(ticker)
+            if biz_ctx:
+                # Extract first sentence of Business Description
+                desc_start = biz_ctx.find("Business Description:\n")
+                if desc_start >= 0:
+                    desc_text = biz_ctx[desc_start + len("Business Description:\n"):]
+                    # Take first sentence (up to first period + space or 140 chars)
+                    dot = desc_text.find(". ")
+                    snippet = desc_text[:dot + 1] if 0 < dot < 140 else desc_text[:140]
+                    biz_line = (
+                        f'<div style="font-size:12px;color:#8B949E;margin:3px 0 6px;'
+                        f'line-height:1.5;font-style:italic;">{snippet}</div>'
+                    )
+        except Exception:
+            pass
 
-        # Primary catalyst from cached AI result (if stock has been analyzed)
-        primary_tag = ""
-        ai_cache_key_hi = f"ai_{ticker}_52W_HIGH"
-        ai_cache_key_lo = f"ai_{ticker}_52W_LOW"
-        for ck in [ai_cache_key_hi, ai_cache_key_lo]:
-            cached = st.session_state.get(ck, {})
-            pc = cached.get("primary_catalyst", {})
+        # ── Primary catalyst: AI cache if analyzed, else best heuristic ──────
+        catalyst_label = "Primary Catalyst"
+        catalyst_color = "#3FB950" if is_hi else "#F85149"
+        catalyst_text  = ""
+        catalyst_impact = ""
+
+        # Check AI cache first
+        for ck in [f"ai_{ticker}_52W_HIGH", f"ai_{ticker}_52W_LOW"]:
+            cached_ai = st.session_state.get(ck, {})
+            pc = cached_ai.get("primary_catalyst", {})
             if pc and pc.get("headline"):
-                primary_tag = (
-                    f'<div style="font-size:11px;color:{"#3FB950" if is_hi else "#F85149"};'
-                    f'font-weight:600;margin:4px 0 2px;line-height:1.4;">'
-                    f'&#9889; {pc["headline"][:90]}'
-                    + (f' <span style="opacity:0.7;">({pc.get("impact_pct","")})</span>'
-                       if pc.get("impact_pct") and pc["impact_pct"] != "N/A" else "")
-                    + f'</div>'
-                )
+                catalyst_text  = pc["headline"][:120]
+                catalyst_impact = pc.get("impact_pct", "")
                 break
 
-        # Business model snippet from yfinance cache (non-blocking)
-        biz_snippet = ""
-        try:
-            biz_info = _fetch_yf_company_context.__wrapped__(ticker) if hasattr(_fetch_yf_company_context, '__wrapped__') else ""
-        except Exception:
-            biz_info = ""
-        cached_biz = st.session_state.get(f"_biz_{ticker}", "")
-        if not cached_biz:
-            # Try from yfinance info directly (fast, cached)
-            try:
-                import yfinance as _yf_card
-                _info = _yf_card.Ticker(ticker).fast_info
-                # fast_info doesn't have description; skip for now
-            except Exception:
-                pass
+        # Fallback: derive single best catalyst from screener data
+        if not catalyst_text:
+            ret1m  = _safe_float(row.get("ret_1m"))  or 0
+            ret3m  = _safe_float(row.get("ret_3m"))  or 0
+            vs     = vsurge or 0
+            if is_hi:
+                if vs >= 3.0:
+                    catalyst_text = f"Institutional accumulation — {vs:.1f}× volume surge above 20-day avg"
+                elif ret1m >= 15:
+                    catalyst_text = f"Strong momentum — +{ret1m:.1f}% in 1 month, +{ret3m:.1f}% over 3 months"
+                elif ret3m >= 30:
+                    catalyst_text = f"Multi-month breakout — +{ret3m:.1f}% over 3 months with sustained buying"
+                else:
+                    catalyst_text = f"52-week breakout — price hit annual peak with {vs:.1f}× volume confirmation"
+            else:
+                if vs >= 3.0:
+                    catalyst_text = f"Institutional distribution — {vs:.1f}× volume surge driving the sell-off"
+                elif ret1m <= -15:
+                    catalyst_text = f"Sharp selloff — {ret1m:.1f}% in 1 month, {ret3m:.1f}% over 3 months"
+                elif ret3m <= -25:
+                    catalyst_text = f"Extended downtrend — {ret3m:.1f}% over 3 months, hitting annual low"
+                else:
+                    catalyst_text = f"52-week breakdown — price breached annual floor with {vs:.1f}× volume"
+
+        impact_chip = (
+            f' <span style="font-size:10px;font-weight:700;background:{"#1a3828" if is_hi else "#3b1219"};'
+            f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">{catalyst_impact}</span>'
+        ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
+
+        catalyst_block = (
+            f'<div style="margin-top:8px;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+            f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">Primary Catalyst</div>'
+            f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+            f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
+            f'</div>'
+        )
 
         # Render each card as its own st.markdown call — avoids markdown code-block mis-parse
         card = (
@@ -1245,8 +1273,8 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'<div class="sc-name">{name}</div>'
             f'<div class="sc-ticker">{ticker}</div>'
             f'<div class="sc-sector">{sector}</div>'
-            f'{primary_tag}'
-            f'{why_block}'
+            f'{biz_line}'
+            f'{catalyst_block}'
             f'</div>'
             f'<div class="sc-right">'
             f'<div class="sc-price">{price_str}</div>'
@@ -2886,7 +2914,7 @@ def main():
             "the 52-week high, or whose **session low** touched or breached the 52-week low. "
             "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
             f"✅ Data feed is working — {len(tickers)} stocks were screened via yfinance."
-        )
+         )
         if errors:
             with st.expander(f"⚠ {len(errors)} fetch errors"):
                 st.dataframe(pd.DataFrame(errors), use_container_width=True)
