@@ -383,30 +383,73 @@ class DataEngine:
 
         logger.info(f"Phase 1 done: {len(candidates)} candidates within {threshold_pct:.1f}%")
 
-        # Phase 2
-        all_records: list[dict] = []
-        for idx, s in enumerate(candidates):
-            ticker = s["ticker"]
-            if idx > 0:
-                time.sleep(sleep_short)
+        # Phase 2 — batch yfinance download (single HTTP call for all candidates)
+        end_date   = datetime.now() + timedelta(days=1)
+        start_date = datetime.now() - timedelta(days=45)
+        cand_tickers = [s["ticker"] for s in candidates]
+
+        batch_df: dict[str, pd.DataFrame] = {}
+        if cand_tickers:
             try:
-                end_date   = datetime.now() + timedelta(days=1)
-                start_date = datetime.now() - timedelta(days=45)
-                stock_obj  = yf.Ticker(ticker)
-                df_short   = stock_obj.history(
+                raw = yf.download(
+                    cand_tickers,
                     start=start_date.strftime("%Y-%m-%d"),
                     end=end_date.strftime("%Y-%m-%d"),
-                    auto_adjust=True, actions=False,
+                    auto_adjust=True,
+                    actions=False,
+                    group_by="ticker",
+                    threads=True,
+                    progress=False,
                 )
-                if df_short is None or df_short.empty:
-                    raise ValueError("Empty short history")
-                if isinstance(df_short.columns, pd.MultiIndex):
-                    df_short.columns = df_short.columns.get_level_values(0)
-                df_short.columns = [str(c).strip().title() for c in df_short.columns]
-                df_short = df_short[df_short["Close"].notna() & (df_short["Close"] > 0)]
-                df_short.sort_index(inplace=True)
+                if len(cand_tickers) == 1:
+                    # yf.download with 1 ticker returns a flat DataFrame, not multi-level
+                    t = cand_tickers[0]
+                    df_c = raw.copy()
+                    if isinstance(df_c.columns, pd.MultiIndex):
+                        df_c.columns = df_c.columns.get_level_values(0)
+                    df_c.columns = [str(c).strip().title() for c in df_c.columns]
+                    df_c = df_c[df_c["Close"].notna() & (df_c["Close"] > 0)]
+                    if not df_c.empty:
+                        batch_df[t] = df_c
+                else:
+                    for t in cand_tickers:
+                        try:
+                            df_c = raw[t].copy()
+                            if isinstance(df_c.columns, pd.MultiIndex):
+                                df_c.columns = df_c.columns.get_level_values(0)
+                            df_c.columns = [str(c).strip().title() for c in df_c.columns]
+                            df_c = df_c[df_c["Close"].notna() & (df_c["Close"] > 0)]
+                            if not df_c.empty:
+                                batch_df[t] = df_c
+                        except Exception:
+                            pass
             except Exception as exc:
-                self._log_error(ticker, "nse_short_history", exc)
+                logger.warning(f"Batch yfinance download failed ({exc}), falling back to serial")
+                # Serial fallback
+                for t in cand_tickers:
+                    try:
+                        df_c = yf.Ticker(t).history(
+                            start=start_date.strftime("%Y-%m-%d"),
+                            end=end_date.strftime("%Y-%m-%d"),
+                            auto_adjust=True, actions=False,
+                        )
+                        if isinstance(df_c.columns, pd.MultiIndex):
+                            df_c.columns = df_c.columns.get_level_values(0)
+                        df_c.columns = [str(c).strip().title() for c in df_c.columns]
+                        df_c = df_c[df_c["Close"].notna() & (df_c["Close"] > 0)]
+                        if not df_c.empty:
+                            batch_df[t] = df_c
+                    except Exception as e2:
+                        self._log_error(t, "nse_short_history_serial", e2)
+
+        logger.info(f"Phase 2 batch fetch: {len(batch_df)}/{len(cand_tickers)} tickers OK")
+
+        all_records: list[dict] = []
+        for s in candidates:
+            ticker   = s["ticker"]
+            df_short = batch_df.get(ticker)
+            if df_short is None:
+                self._log_error(ticker, "nse_short_history", ValueError("Not in batch result"))
                 continue
 
             if len(df_short) < self.config.volume_window + 2:
