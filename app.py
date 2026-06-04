@@ -1,4 +1,5 @@
 """
+cd "D:\Documents\Claude\Projects\Auto 52 week High\Low Analysis"
 app.py — Professional Streamlit Dashboard
 ==========================================
 Nifty 500  |  52-Week High/Low Screener  |  AI-Powered Analysis
@@ -804,30 +805,10 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
     )
     eng = DataEngine(cfg)
 
-    # ── Try NSE live feed first (1 API call for all stocks) ───────────────────
-    # Map universe selection to NSE index name
-    _universe_to_nse = {
-        "Nifty 500":          "NIFTY 500",
-        "Nifty 50":           "NIFTY 50",
-        "Nifty 100":          "NIFTY 100",
-        "Nifty Midcap 100":   "NIFTY MIDCAP 100",
-        "Nifty Smallcap 100": "NIFTY SMALLCAP 100",
-    }
-    nse_index_name = _universe_to_nse.get(p.get("universe", ""), "")
-    nse_stocks     = []
-
-    if nse_index_name and _NSE_BSE_OK:
-        try:
-            nse_stocks = get_nse_index_live(nse_index_name)
-        except Exception:
-            nse_stocks = []
-
-    if nse_stocks:
-        # NSE live path: filter all stocks in 1 call, yfinance only for flagged
-        raw = eng.screen_from_nse_live(nse_stocks)
-    else:
-        # Fallback: full yfinance path (original behaviour)
-        raw = eng.screen_universe()
+    # ── yfinance batch path (primary) ────────────────────────────────────────
+    # Downloads all tickers in chunks of 100 via yf.download() — works on
+    # Streamlit Cloud and locally without NSE geo-block dependency.
+    raw = eng.screen_universe()
 
     highs = pd.DataFrame(eng.format_for_display(raw["highs"]))
     lows  = pd.DataFrame(eng.format_for_display(raw["lows"]))
@@ -2482,11 +2463,10 @@ def main():
 
     # ── Run screen (on button click OR first page load) ────────────────────
     if p["run"] or "screen_results" not in st.session_state:
-        with st.spinner(
-            f"Screening **{len(tickers)} stocks** via NSE live feed… "
-            "Usually completes in under a minute."
-        ):
-            results = _run_screen(tickers, p)
+        status_box = st.empty()
+        status_box.info("⏳ Fetching live data from NSE…")
+        results = _run_screen(tickers, p)
+        status_box.empty()
     else:
         results = st.session_state["screen_results"]
 
@@ -2511,6 +2491,22 @@ def main():
             "Install dependencies and ensure `engine.py` is in the same folder.",
             icon="⚠",
         )
+
+    # ── No results guidance ───────────────────────────────────────────────────
+    if highs_df.empty and lows_df.empty and not is_mock:
+        ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
+        st.info(
+            f"**No stocks hit a 52-week extreme today** (screen run at {ts}).\n\n"
+            "The screener only flags stocks whose **session high** touched or exceeded "
+            "the 52-week high, or whose **session low** touched or breached the 52-week low. "
+            "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
+            "✅ Data feed is working — "
+            f"{len(tickers)} stocks were screened via {'NSE live' if results.get('nse_used') else 'yfinance'}."
+        )
+        if errors:
+            with st.expander(f"⚠ {len(errors)} fetch errors"):
+                st.dataframe(pd.DataFrame(errors), use_container_width=True)
+        return
 
     st.markdown(
         f'<div class="sec-hdr" style="margin-top:8px;">'
@@ -2543,20 +2539,4 @@ def main():
             mask = lows_df["ticker"] == selected_lo
             if mask.any():
                 row = lows_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_lo, row, p)
-
-    with t_err:
-        if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
-        else:
-            err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
-
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+     
