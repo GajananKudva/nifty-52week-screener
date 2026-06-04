@@ -2779,7 +2779,7 @@ def _render_sidebar() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
     p = _render_sidebar()
-    st.markdown(_APP_CSS, unsafe_allow_html=True)
+    st.markdown(_CSS, unsafe_allow_html=True)
 
     st.markdown(
         '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">' 
