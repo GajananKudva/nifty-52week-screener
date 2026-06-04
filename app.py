@@ -1296,6 +1296,121 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     return None if selected.startswith("—") else selected
 
 
+def _quick_catalyst_groq(ticker: str, company: str, sector: str,
+                          signal: str, price: float,
+                          ret1m: float, ret3m: float,
+                          vsurge: float, pe: float) -> dict:
+    """
+    Fast primary-catalyst call using llama-3.1-8b-instant on Groq.
+    Returns {headline, impact_pct} or {} on failure.
+    Designed to be called in parallel for all screener hits.
+    """
+    if not _AI_OK:
+        return {}
+    try:
+        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
+        is_hi     = "HIGH" in signal.upper()
+        direction = "52-week high" if is_hi else "52-week low"
+        prompt = (
+            f"You are a senior equity analyst. In ONE punchy sentence, name the single "
+            f"most likely primary catalyst for {company} ({ticker}) hitting its {direction} today.\n\n"
+            f"Key data:\n"
+            f"  Sector    : {sector}\n"
+            f"  1M return : {f'{ret1m:+.1f}%' if ret1m else 'N/A'}\n"
+            f"  3M return : {f'{ret3m:+.1f}%' if ret3m else 'N/A'}\n"
+            f"  Vol surge : {f'{vsurge:.1f}x' if vsurge else 'N/A'}\n"
+            f"  P/E       : {f'{pe:.1f}x' if pe else 'N/A'}\n\n"
+            f'Return ONLY valid JSON: {{"headline": "one sentence with a specific figure or date", '
+            f'"impact_pct": "estimated % like +18% or -22%"}}'
+        )
+        resp = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=120,
+            response_format={"type": "json_object"},
+        )
+        raw = resp.choices[0].message.content.strip()
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> int:
+    """
+    Post-screen enrichment: fire one quick Groq call per screener hit in parallel.
+    Collects results in a plain dict (thread-safe), then writes to session_state
+    in the main thread. Returns the count of stocks successfully enriched.
+    """
+    if not _AI_OK:
+        return 0
+
+    # Build task list — skip stocks already in cache
+    tasks = []
+    for sig, df in [("52W_HIGH", highs_df), ("52W_LOW", lows_df)]:
+        if df is None or df.empty:
+            continue
+        for _, row in df.iterrows():
+            ticker = row.get("ticker", "")
+            cache_key = f"ai_{ticker}_{sig}"
+            if cache_key in st.session_state:
+                continue          # already fully analysed — don't overwrite
+            tasks.append({
+                "ticker":    ticker,
+                "company":   row.get("company_name", ticker),
+                "sector":    row.get("sector", ""),
+                "signal":    sig,
+                "price":     _safe_float(row.get("current_price")) or 0,
+                "ret1m":     _safe_float(row.get("ret_1m"))         or 0,
+                "ret3m":     _safe_float(row.get("ret_3m"))         or 0,
+                "vsurge":    _safe_float(row.get("volume_surge"))   or 0,
+                "pe":        _safe_float(row.get("pe_ratio"))       or 0,
+                "cache_key": cache_key,
+            })
+
+    if not tasks:
+        return 0
+
+    # Thread-safe accumulator — written only from worker threads
+    _results: dict = {}
+
+    def _call_one(task: dict) -> None:
+        pc = _quick_catalyst_groq(
+            task["ticker"], task["company"], task["sector"], task["signal"],
+            task["price"], task["ret1m"], task["ret3m"], task["vsurge"], task["pe"],
+        )
+        if pc and pc.get("headline"):
+            _results[task["cache_key"]] = {
+                "primary_catalyst": pc,
+                "sentiment": "",
+                "confidence": "Low",
+                "business_model": "",
+                "summary": "",
+                "catalyst_timeline": [],
+                "catalysts": [],
+                "watch_next": [],
+                "peer_context": "",
+                "sources": [],
+            }
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # Cap at 8 concurrent — keeps well within Groq's 30 RPM free-tier limit
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = {pool.submit(_call_one, t): t for t in tasks}
+        try:
+            for _ in as_completed(futures, timeout=20):
+                pass
+        except Exception:
+            pass  # timeout — use whatever results arrived
+
+    # Write to session_state in the main Streamlit thread (thread-safe)
+    for cache_key, data in _results.items():
+        if cache_key not in st.session_state:   # still don't overwrite a full analysis
+            st.session_state[cache_key] = data
+
+    return len(_results)
+
+
 def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   price: float, high52: float, low52: float,
                   pct_from_high: float, pct_from_low: float,
@@ -2853,7 +2968,7 @@ def main():
         _fetch_index_data.clear()
         _fetch_tape_data.clear()
 
-    # ── Build ticker list ──────────────────────────────────────────────────
+        # ── Build ticker list ──────────────────────
     if p["universe"] == "Custom" and p["custom_txt"].strip():
         tickers = [t.strip() for t in p["custom_txt"].splitlines() if t.strip()]
     else:
@@ -2876,6 +2991,22 @@ def main():
                 label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
                 state="complete", expanded=False,
             )
+
+        # ── Parallel AI enrichment (post-screen, llama-3.1-8b-instant) ───────
+        _h = results.get("highs", pd.DataFrame())
+        _l = results.get("lows",  pd.DataFrame())
+        _total = len(_h) + len(_l)
+        if _total > 0 and _AI_OK:
+            with st.status(
+                f"🤖 AI pre-analysing {_total} stocks in parallel…",
+                expanded=False,
+            ) as enrich_status:
+                _n = _enrich_results_parallel(_h, _l)
+                enrich_status.update(
+                    label=f"✅ Primary catalysts ready for {_n} stocks",
+                    state="complete",
+                )
+
     elif "screen_results" in st.session_state:
         results = st.session_state["screen_results"]
     else:
@@ -2883,13 +3014,13 @@ def main():
 
     if not results:
         st.markdown(
-            '<div style="text-align:center;padding:80px;color:#484F58;">'
-            '<div style="font-size:48px;">📊</div>'
-            '<div style="font-size:18px;font-weight:600;margin-top:16px;">Nifty 52-Week Screener</div>'
-            '<div style="font-size:14px;margin-top:8px;color:#6B7280;">'
-            'Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today\'s breakouts.'
-            '</div>'
-            '</div>',
+            "<div style='text-align:center;padding:80px;color:#484F58;'>"
+            "<div style='font-size:48px;'>📊</div>"
+            "<div style='font-size:18px;font-weight:600;margin-top:16px;'>Nifty 52-Week Screener</div>"
+            "<div style='font-size:14px;margin-top:8px;color:#6B7280;'>"
+            "Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today's breakouts."
+            "</div>"
+            "</div>",
             unsafe_allow_html=True,
         )
         return
@@ -2914,19 +3045,19 @@ def main():
             "the 52-week high, or whose **session low** touched or breached the 52-week low. "
             "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
             f"✅ Data feed is working — {len(tickers)} stocks were screened via yfinance."
-         )
+        )
         if errors:
             with st.expander(f"⚠ {len(errors)} fetch errors"):
                 st.dataframe(pd.DataFrame(errors), use_container_width=True)
         return
 
     st.markdown(
-        f'<div class="sec-hdr" style="margin-top:8px;">'
-        f'&#9670; Today\'s Signals &nbsp;'
-        f'<span style="color:{_GREEN}">&#8679; {len(highs_df)} Breakout Highs</span>'
-        f'&nbsp;&nbsp;'
-        f'<span style="color:{_RED}">&#8681; {len(lows_df)} Breakdown Lows</span>'
-        f'</div>',
+        f"<div class='sec-hdr' style='margin-top:8px;'>"
+        f"&#9670; Today's Signals &nbsp;"
+        f"<span style='color:{_GREEN}'>&#8679; {len(highs_df)} Breakout Highs</span>"
+        f"&nbsp;&nbsp;"
+        f"<span style='color:{_RED}'>&#8681; {len(lows_df)} Breakdown Lows</span>"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
