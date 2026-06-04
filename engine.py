@@ -233,23 +233,70 @@ class DataEngine:
         return result
 
     def screen_universe(self) -> dict:
-        tickers = self.config.tickers
-        logger.info(f"Starting universe screen | {len(tickers)} tickers")
+        """
+        Fallback path when NSE live API is unavailable (e.g. geo-blocked on cloud).
+        Uses yf.download() in chunks of 100 — single HTTP call per chunk instead of
+        one call per ticker. 500 stocks: ~4 chunks × ~5s = ~20s total vs ~8 minutes serial.
+        """
+        tickers = [t.strip().upper() for t in self.config.tickers if t.strip()]
+        logger.info(f"Starting batch universe screen | {len(tickers)} tickers")
+
+        # ── Step 1: Batch download history for all tickers ────────────────────
+        CHUNK     = 100
+        end_date  = datetime.now() + timedelta(days=1)
+        start_date = datetime.now() - timedelta(days=self.config.history_buffer_days)
+        hist_map: dict[str, pd.DataFrame] = {}
+
+        for chunk_start in range(0, len(tickers), CHUNK):
+            chunk = tickers[chunk_start: chunk_start + CHUNK]
+            chunk_num = chunk_start // CHUNK + 1
+            total_chunks = (len(tickers) + CHUNK - 1) // CHUNK
+            logger.info(f"Batch download chunk {chunk_num}/{total_chunks} ({len(chunk)} tickers)")
+            try:
+                raw = yf.download(
+                    chunk,
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
+                    auto_adjust=True,
+                    actions=False,
+                    group_by="ticker",
+                    threads=True,
+                    progress=False,
+                )
+                if len(chunk) == 1:
+                    t    = chunk[0]
+                    df_c = raw.copy()
+                    if isinstance(df_c.columns, pd.MultiIndex):
+                        df_c.columns = df_c.columns.get_level_values(0)
+                    df_c.columns = [str(c).strip().title() for c in df_c.columns]
+                    df_c.index   = pd.to_datetime(df_c.index)
+                    df_c.sort_index(inplace=True)
+                    df_c = df_c[df_c["Close"].notna() & (df_c["Close"] > 0)]
+                    if not df_c.empty:
+                        hist_map[t] = df_c
+                else:
+                    for t in chunk:
+                        try:
+                            df_c = raw[t].copy()
+                            if isinstance(df_c.columns, pd.MultiIndex):
+                                df_c.columns = df_c.columns.get_level_values(0)
+                            df_c.columns = [str(c).strip().title() for c in df_c.columns]
+                            df_c.index   = pd.to_datetime(df_c.index)
+                            df_c.sort_index(inplace=True)
+                            df_c = df_c[df_c["Close"].notna() & (df_c["Close"] > 0)]
+                            if not df_c.empty:
+                                hist_map[t] = df_c
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.warning(f"Chunk {chunk_num} batch download failed: {exc} — skipping chunk")
+
+        logger.info(f"Batch download done: {len(hist_map)}/{len(tickers)} tickers fetched")
+
+        # ── Step 2: Compute signals from downloaded data ──────────────────────
         all_records: list[dict] = []
-        batch_size  = self.config.rate_limit_batch_size
-        sleep_short = self.config.rate_limit_sleep
-
-        for idx, ticker in enumerate(tickers):
-            ticker = ticker.strip().upper()
-            if not ticker:
-                continue
-            logger.info(f"[{idx+1:>3}/{len(tickers)}] {ticker}")
-            if idx > 0 and idx % batch_size == 0:
-                time.sleep(2.0)
-            else:
-                time.sleep(sleep_short)
-
-            df = self.fetch_price_history(ticker)
+        for ticker in tickers:
+            df = hist_map.get(ticker)
             if df is None:
                 continue
             signals = self.calculate_technical_signals(df, ticker)
@@ -257,7 +304,6 @@ class DataEngine:
                 continue
 
             if signals["signal"] is not None:
-                time.sleep(sleep_short)
                 fundamentals   = self.fetch_fundamentals(ticker)
                 news_headlines = self.fetch_news(ticker)
                 dcf = self.calculate_dcf(ticker, signals["current_price"], fundamentals)
