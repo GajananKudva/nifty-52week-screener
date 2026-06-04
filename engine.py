@@ -39,7 +39,7 @@ class ScreenerConfig:
 
     # Technical
     high_low_window: int = 252
-    breakout_threshold: float = 0.025
+    breakout_threshold: float = 0.0   # 0 = only stocks that actually HIT the 52W extreme today
     volume_window: int = 20
     volume_surge_threshold: float = 1.2
 

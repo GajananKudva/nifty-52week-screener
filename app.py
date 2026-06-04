@@ -2346,8 +2346,7 @@ def _render_sidebar() -> dict:
             'Technical Parameters</div>',
             unsafe_allow_html=True,
         )
-        threshold = st.slider("52W Proximity Band (%)", 0.0, 10.0, 2.5, 0.5,
-                               help="Flag stocks within this % of their 52W extreme. Set to 0 to see only stocks exactly at the high/low.") / 100
+        threshold = 0.0  # strict: only stocks whose day high/low actually HIT the 52W extreme today
         use_vol_filter = st.toggle("Volume Surge filter", value=False,
                                    help="When ON, only stocks with the required volume surge are shown. When OFF, all proximity hits appear regardless of volume.")
         vol_surge = st.slider("Min Volume Surge (×)", 0.5, 5.0, 1.2, 0.1,
@@ -2557,3 +2556,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                                                                                                                          
