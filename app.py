@@ -798,10 +798,6 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
         breakout_threshold     = p["threshold"],
         volume_window          = 20,
         volume_surge_threshold = _vol_threshold,
-        dcf_discount_rate      = p["wacc"],
-        dcf_terminal_growth    = p["term_growth"],
-        dcf_stage1_years       = 5,
-        dcf_stage2_years       = 5,
         rate_limit_sleep       = 0.25,
         rate_limit_batch_size  = 50,
     )
@@ -999,7 +995,7 @@ def _render_header():
     st.markdown(
         f'<div class="app-hdr">'
         f'  <div class="brand">&#9670; Nifty<span class="accent">500</span> Screener</div>'
-        f'  <div class="meta">52-Week High / Low · Volume Confirmed · 2-Stage DCF &nbsp;|&nbsp; '
+        f'  <div class="meta">52-Week High / Low · Volume Confirmed &nbsp;|&nbsp; '
         f'Last screen: {ts}</div>'
         f'</div>',
         unsafe_allow_html=True,
@@ -1039,17 +1035,12 @@ def _style_signals_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
         "pct_from_low":      "% From Low",
         "volume_surge":      "Vol Surge",
         "pe_ratio":          "P/E",
-        "upside_downside_pct": "DCF Upside%",
         "ret_1m":            "1M Ret%",
         "ret_3m":            "3M Ret%",
     }
     available = {k: v for k, v in col_map.items() if k in df.columns}
     out = df[list(available.keys())].copy()
     out.columns = list(available.values())
-
-    def _c_dcf(v):
-        if pd.isna(v): return f"color:{_MUTED}"
-        return f"color:{_GREEN}" if v > 0 else f"color:{_RED}"
 
     def _c_ret(v):
         if pd.isna(v): return f"color:{_MUTED}"
@@ -1063,7 +1054,6 @@ def _style_signals_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
 
     styled = (
         out.style
-        .map(_c_dcf, subset=["DCF Upside%"])
         .map(_c_ret, subset=["1M Ret%", "3M Ret%"])
         .format({
             "Price (₹)":   "₹{:,.2f}",
@@ -1073,7 +1063,6 @@ def _style_signals_df(df: pd.DataFrame) -> pd.io.formats.style.Styler:
             "% From Low":  "{:.2f}%",
             "Vol Surge":   "{:.2f}×",
             "P/E":         _fmt_pe,
-            "DCF Upside%": _fmt_pct,
             "1M Ret%":     _fmt_pct,
             "3M Ret%":     _fmt_pct,
         }, na_rep="—")
@@ -1145,17 +1134,7 @@ def _build_why_bullets(row: dict, is_hi: bool) -> list[str]:
     if vsurge is not None and vsurge >= 1.2:
         bullets.append(f"<strong>Volume surge {vsurge:.1f}×</strong> above 20-day average — institutional conviction behind the move.")
 
-    # 4. DCF valuation
-    dcf = _safe_float(row.get("upside_downside_pct"))
-    if dcf is not None:
-        if dcf > 15:
-            bullets.append(f"<strong>DCF shows {dcf:.1f}% upside</strong> — stock appears undervalued relative to intrinsic value.")
-        elif dcf < -15:
-            bullets.append(f"<strong>DCF shows {abs(dcf):.1f}% downside</strong> — price may be stretched beyond intrinsic value.")
-        else:
-            bullets.append(f"<strong>Fairly valued</strong> by DCF ({dcf:+.1f}%) — momentum-driven rather than valuation-driven move.")
-
-    # 5. P/E context
+    # 4. P/E context
     pe = _safe_float(row.get("pe_ratio"))
     if pe is not None and pe > 0:
         if pe > 50:
@@ -1257,7 +1236,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
 def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   price: float, high52: float, low52: float,
                   pct_from_high: float, pct_from_low: float,
-                  vsurge: float, pe: float, dcf_upside: float,
+                  vsurge: float, pe: float,
                   news_headlines: str,
                   ret_1m: Optional[float] = None,
                   ret_3m: Optional[float] = None,
@@ -1284,7 +1263,7 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     if not _AI_OK:
         return _fallback_deep_dive(ticker, company, sector, signal,
                                    price, high52, low52, pct_from_high,
-                                   pct_from_low, vsurge, pe, dcf_upside)
+                                   pct_from_low, vsurge, pe)
 
     is_hi   = "HIGH" in signal.upper()
     extreme = "HIGH" if is_hi else "LOW"
@@ -1322,7 +1301,7 @@ MARKET DATA
   52W High      : Rs{high52:,.2f}  ({abs(pct_from_high):.1f}% away)
   52W Low       : Rs{low52:,.2f}   ({abs(pct_from_low):.1f}% away)
   Volume Surge  : {vsurge:.1f}x 20-day average
-  P/E           : {pe if pe else "N/A"}x    |    DCF Upside: {f"{dcf_upside:+.1f}%" if dcf_upside else "N/A"}
+  P/E           : {pe if pe else "N/A"}x
   Returns       : 1M={f"{ret_1m:+.1f}%" if ret_1m is not None else "N/A"}  3M={f"{ret_3m:+.1f}%" if ret_3m is not None else "N/A"}  6M={f"{ret_6m:+.1f}%" if ret_6m is not None else "N/A"}  1Y={f"{ret_1y:+.1f}%" if ret_1y is not None else "N/A"}
   Sector        : {sector}
 {f"  Recent closes (oldest to newest): {price_series}" if price_series else ""}
@@ -1341,6 +1320,8 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 {{
   "sentiment": "Bullish",
   "confidence": "Medium",
+  "business_model": "2-3 sentences describing what {company} does, its core revenue streams, and its competitive position. Be specific about products/services and key markets.",
+  "summary": "3-4 sentence overall assessment: sentiment drivers, key risk, and the single most important catalyst. Write like an analyst note, not a textbook.",
   "catalysts": [
     {{
       "type": "positive",
@@ -1350,7 +1331,6 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
       "source": "Source name (e.g. Bloomberg, NSE filing, Business Standard)"
     }}
   ],
-  "summary": "3-4 sentence overall assessment: sentiment drivers, key risk, and the single most important catalyst. Write like an analyst note, not a textbook.",
   "sources": ["Source Name, Month DD YYYY", "Source Name, Month DD YYYY"]
 }}
 
@@ -1404,19 +1384,21 @@ Rules:
 
     return _fallback_deep_dive(ticker, company, sector, signal,
                                price, high52, low52, pct_from_high,
-                               pct_from_low, vsurge, pe, dcf_upside,
+                               pct_from_low, vsurge, pe,
                                error=last_err)
 
 
 def _fallback_deep_dive(ticker, company, sector, signal,
                         price, high52, low52, pct_from_high, pct_from_low,
-                        vsurge, pe, dcf_upside, error="") -> dict:
+                        vsurge, pe, error="") -> dict:
     is_hi = "HIGH" in signal.upper()
     level = "52-week high" if is_hi else "52-week low"
     err_note = f"OpenAI error: {error[:120]}" if error else "AI API key not configured"
     return {
-        "sentiment":  "Neutral",
-        "confidence": "Low",
+        "sentiment":     "Neutral",
+        "confidence":    "Low",
+        "business_model": f"{company} operates in the {sector} sector. Configure an AI API key for a detailed business description.",
+        "summary": f"{company} ({ticker}) is near its {level} at Rs{price:,.2f}. Volume surge: {vsurge:.1f}x. Configure an AI API key for full catalyst analysis.",
         "catalysts": [
             {
                 "type":     "neutral",
@@ -1426,7 +1408,6 @@ def _fallback_deep_dive(ticker, company, sector, signal,
                 "source":   "System",
             }
         ],
-        "summary": f"{company} ({ticker}) is near its {level} at Rs{price:,.2f}. Volume surge: {vsurge:.1f}x. Configure an AI API key for full catalyst analysis.",
         "sources": [],
     }
 
@@ -1707,6 +1688,35 @@ def _cached_yfinance_context(ticker: str) -> str:
     return build_yfinance_context(ticker) if _SCREENER_OK else ""
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_yf_company_context(ticker: str) -> str:
+    """Fetch company profile from yfinance as replacement for geo-blocked NSE stock API."""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        parts = []
+        if info.get("longBusinessSummary"):
+            parts.append(f"Business Description:\n{info['longBusinessSummary'][:800]}")
+        mktcap = info.get("marketCap")
+        if mktcap:
+            parts.append(f"Market Cap: Rs {mktcap/1e7:,.0f} Cr")
+        if info.get("fullTimeEmployees"):
+            parts.append(f"Employees: {info['fullTimeEmployees']:,}")
+        if info.get("dividendYield"):
+            parts.append(f"Dividend Yield: {info['dividendYield']*100:.2f}%")
+        if info.get("beta"):
+            parts.append(f"Beta: {info['beta']:.2f}")
+        if info.get("returnOnEquity"):
+            parts.append(f"ROE: {info['returnOnEquity']*100:.1f}%")
+        if info.get("debtToEquity"):
+            parts.append(f"Debt/Equity: {info['debtToEquity']:.2f}")
+        if info.get("revenueGrowth"):
+            parts.append(f"Revenue Growth (YoY): {info['revenueGrowth']*100:.1f}%")
+        return "\n".join(parts) if parts else ""
+    except Exception:
+        return ""
+
+
 def _render_news_feed(company: str, ticker: str, accent: str):
     """Render the Google News feed section below the analyst report."""
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -1759,7 +1769,7 @@ def _build_pdf_report(
     ticker: str, company: str, sector: str, signal: str,
     price: float, high52: float, low52: float,
     pfh: float, pfl: float, vsurge: float, pe: float,
-    upside: float, analysis: dict, articles: list[dict],
+    analysis: dict, articles: list[dict],
 ) -> bytes:
     """
     Build a professional equity research PDF and return as bytes.
@@ -1861,7 +1871,7 @@ def _build_pdf_report(
         ["% From Low",     fmt(abs(pfl) if pfl else None, "", "%"),
          "Volume Surge",   fmt(vsurge, "", "x")],
         ["P/E Ratio",      fmt(pe,     "", "x"),
-         "DCF Upside",     fmt(upside, "", "%")],
+         "Volume Surge",   fmt(vsurge, "", "x")],
     ]
     col_w = [3.8*cm, 4.2*cm, 3.8*cm, 4.2*cm]
     mt = Table(metrics_data, colWidths=col_w)
@@ -2032,23 +2042,19 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     price  = _safe_float(row.get("current_price"))
     high52 = _safe_float(row.get("week_52_high"))
     low52  = _safe_float(row.get("week_52_low"))
-    upside = _safe_float(row.get("upside_downside_pct"))
     vsurge = _safe_float(row.get("volume_surge"))
     pe     = _safe_float(row.get("pe_ratio"))
     pfh    = _safe_float(row.get("pct_from_high")) or 0.0
     pfl    = _safe_float(row.get("pct_from_low"))  or 0.0
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Current Price",  f"₹{price:,.2f}"   if price  else "—")
     c2.metric("52W High",       f"₹{high52:,.2f}"  if high52 else "—",
               f"{abs(pfh):.2f}% from high")
     c3.metric("52W Low",        f"₹{low52:,.2f}"   if low52  else "—",
               f"{abs(pfl):.2f}% from low")
-    c4.metric("DCF Upside",
-              f"{upside:+.2f}%" if upside is not None else "—",
-              "undervalued" if upside and upside > 0 else "overvalued" if upside else "—")
-    c5.metric("P/E Ratio",      f"{pe:.1f}×"       if pe     else "—")
-    c6.metric("Volume Surge",   f"{vsurge:.2f}×"   if vsurge else "—")
+    c4.metric("P/E Ratio",      f"{pe:.1f}×"       if pe     else "—")
+    c5.metric("Volume Surge",   f"{vsurge:.2f}×"   if vsurge else "—")
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
@@ -2103,11 +2109,11 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         )
 
     with src_col4:
-        with st.spinner("NSE: fetching stock-level signals…"):
-            nse_bse_ctx = build_nse_bse_context(ticker) if _NSE_BSE_OK else ""
+        with st.spinner("yfinance: fetching company profile…"):
+            nse_bse_ctx = _fetch_yf_company_context(ticker)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if nse_bse_ctx else "#F0B429"};">'
-            f'{"✅ Delivery/F&O/Deals/Holdings loaded" if nse_bse_ctx else "⚠️ NSE stock data unavailable"}</div>',
+            f'{"✅ Company profile loaded" if nse_bse_ctx else "⚠️ Company profile unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2161,7 +2167,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             ticker=ticker, company=name, sector=row.get("sector", ""),
             signal=sig, price=price or 0, high52=high52 or 0,
             low52=low52 or 0, pct_from_high=pfh, pct_from_low=pfl,
-            vsurge=vsurge or 0, pe=pe or 0, dcf_upside=upside or 0,
+            vsurge=vsurge or 0, pe=pe or 0,
             news_headlines=headlines_str,
             ret_1m=ret_1m, ret_3m=ret_3m, ret_6m=ret_6m, ret_1y=ret_1y,
             price_series=price_series,
@@ -2221,6 +2227,32 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
+    # ── Summary ───────────────────────────────────────────────────────────────
+    if summary:
+        st.markdown(
+            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
+            f'border:1px solid {accent};border-radius:8px;'
+            f'padding:16px 20px;margin:8px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:{accent};margin-bottom:8px;">&#9670; Summary</div>'
+            f'<div style="font-size:14px;color:#E6EDF3;line-height:1.7;">{summary}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Business Model ────────────────────────────────────────────────────────
+    business_model = analysis.get("business_model", "")
+    if business_model:
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:16px 20px;margin:8px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Business Model</div>'
+            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{business_model}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     # ── Catalyst cards ────────────────────────────────────────────────────────
     catalysts = analysis.get("catalysts", [])
     if catalysts:
@@ -2255,19 +2287,6 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 + f'</div></div></div>',
                 unsafe_allow_html=True,
             )
-
-    # ── Summary ───────────────────────────────────────────────────────────────
-    if summary:
-        st.markdown(
-            f'<div style="background:{"#0d2618" if is_hi else "#2a0d12"};'
-            f'border:1px solid {accent};border-radius:8px;'
-            f'padding:16px 20px;margin:8px 0 14px;">'
-            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
-            f'text-transform:uppercase;color:{accent};margin-bottom:8px;">&#9670; Summary</div>'
-            f'<div style="font-size:14px;color:#E6EDF3;line-height:1.7;">{summary}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
 
     # ── Sources ───────────────────────────────────────────────────────────────
     sources = analysis.get("sources", [])
@@ -2305,7 +2324,6 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             pfl      = pfl,
             vsurge   = vsurge or 0,
             pe       = pe or 0,
-            upside   = upside or 0,
             analysis = analysis,
             articles = articles,
         )
@@ -2374,18 +2392,6 @@ def _render_sidebar() -> dict:
 
         st.markdown("<hr/>", unsafe_allow_html=True)
 
-        # ── DCF params ────────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin-bottom:6px;">'
-            'DCF Model</div>',
-            unsafe_allow_html=True,
-        )
-        wacc        = st.slider("WACC / Discount Rate (%)", 6.0, 18.0, 10.0, 0.5) / 100
-        term_growth = st.slider("Terminal Growth Rate (%)", 1.0,  6.0,  3.0, 0.5) / 100
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-
         # ── Run button ────────────────────────────────────────────────────────
         run = st.button("▶  Run Screen", use_container_width=True, type="primary")
 
@@ -2448,8 +2454,6 @@ def _render_sidebar() -> dict:
         "vol_surge":      vol_surge,
         "use_vol_filter": use_vol_filter,
         "window":         window,
-        "wacc":           wacc,
-        "term_growth":    term_growth,
         "universe":       universe,
         "custom_txt":     custom_txt,
         "run":            run,
@@ -2592,12 +2596,4 @@ def main():
            st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
-
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+            st.dat
