@@ -1,5 +1,4 @@
 """
-cd "D:\Documents\Claude\Projects\Auto 52 week High\Low Analysis"
 app.py — Professional Streamlit Dashboard
 ==========================================
 Nifty 500  |  52-Week High/Low Screener  |  AI-Powered Analysis
@@ -2463,10 +2462,15 @@ def main():
 
     # ── Run screen (on button click OR first page load) ────────────────────
     if p["run"] or "screen_results" not in st.session_state:
-        status_box = st.empty()
-        status_box.info("⏳ Fetching live data from NSE…")
-        results = _run_screen(tickers, p)
-        status_box.empty()
+        with st.status("Running screen…", expanded=True) as status:
+            st.write(f"⬇ Downloading price history for {len(tickers)} stocks via yfinance…")
+            results = _run_screen(tickers, p)
+            n_hi = len(results.get("highs", pd.DataFrame()))
+            n_lo = len(results.get("lows",  pd.DataFrame()))
+            status.update(
+                label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
+                state="complete", expanded=False,
+            )
     else:
         results = st.session_state["screen_results"]
 
@@ -2531,12 +2535,4 @@ def main():
             if mask.any():
                 row = highs_df[mask].iloc[0].to_dict()
                 st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_hi, row, p)
-
-    with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
-        if selected_lo and not lows_df.empty:
-            mask = lows_df["ticker"] == selected_lo
-            if mask.any():
-                row = lows_df[mask].iloc[0].to_dict()
-     
+                _render
