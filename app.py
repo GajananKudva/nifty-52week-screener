@@ -185,6 +185,22 @@ html, body, [class*="css"] {
 
 /* ── Strip default Streamlit chrome ──────────────────────────────────────── */
 #MainMenu, footer, header { visibility: hidden; }
+
+/* ── Sidebar collapsed toggle (make visible on dark bg) ───────────────── */
+[data-testid="collapsedControl"] {
+    color: #E6EDF3 !important;
+    background-color: #161B22 !important;
+    border: 1px solid #21262D !important;
+    border-radius: 0 6px 6px 0 !important;
+}
+
+/* ── Sidebar collapsed toggle (make visible on dark bg) ─────────────────── */
+[data-testid="collapsedControl"] {
+    color: #E6EDF3 !important;
+    background-color: #161B22 !important;
+    border: 1px solid #21262D !important;
+    border-radius: 0 6px 6px 0 !important;
+}
 .block-container {
     padding-top: 0 !important;
     padding-bottom: 1.5rem !important;
@@ -2586,7 +2602,7 @@ def main():
 
     with t_err:
         if not errors:
-            st.success("\u2705 No errors in the last run \u2014 all tickers processed cleanly.")
+           st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
             st.dataframe(err_df, use_container_width=True)
