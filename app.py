@@ -807,8 +807,11 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
     # ── Try NSE live feed first (1 API call for all stocks) ───────────────────
     # Map universe selection to NSE index name
     _universe_to_nse = {
-        "Nifty 500":    "NIFTY 500",
-        "Nifty 50 only": "NIFTY 50",
+        "Nifty 500":          "NIFTY 500",
+        "Nifty 50":           "NIFTY 50",
+        "Nifty 100":          "NIFTY 100",
+        "Nifty Midcap 100":   "NIFTY MIDCAP 100",
+        "Nifty Smallcap 100": "NIFTY SMALLCAP 100",
     }
     nse_index_name = _universe_to_nse.get(p.get("universe", ""), "")
     nse_stocks     = []
@@ -2325,8 +2328,9 @@ def _render_sidebar() -> dict:
         )
         universe = st.radio(
             "Universe",
-            options=["Nifty 500 (live)", "Nifty 50 only", "Custom"],
-            index=1,
+            options=["Nifty 500", "Nifty 50", "Nifty 100",
+                     "Nifty Midcap 100", "Nifty Smallcap 100", "Custom"],
+            index=0,
             label_visibility="collapsed",
         )
         custom_txt = ""
@@ -2556,4 +2560,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                                                                                                                          
