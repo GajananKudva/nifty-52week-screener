@@ -2596,4 +2596,12 @@ def main():
            st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
-            st.dat
+            st.dataframe(err_df, use_container_width=True)
+
+    if p["auto_refresh"]:
+        time.sleep(60)
+        st.rerun()
+
+
+if __name__ == "__main__":
+    main()
