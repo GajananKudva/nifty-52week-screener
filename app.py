@@ -2715,8 +2715,6 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 # 9.  SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 def _render_sidebar() -> dict:
-    params: dict = {}
-
     with st.sidebar:
         st.markdown(
             '<div style="font-size:15px;font-weight:700;color:#E6EDF3;'
@@ -2724,7 +2722,7 @@ def _render_sidebar() -> dict:
             unsafe_allow_html=True,
         )
 
-        # ── Universe ───────────────────────────────────────────────────────────────
+        # ── Universe ────────────────────────────────────────────────────────
         st.markdown(
             '<div style="font-size:10px;font-weight:700;color:#6E7681;'
             'letter-spacing:2px;text-transform:uppercase;margin:12px 0 6px;">Universe</div>',
@@ -2745,33 +2743,58 @@ def _render_sidebar() -> dict:
                 placeholder="RELIANCE.NS\nINFY.NS\nHDFCBANK.NS",
             )
 
-        # ── Signal filters ──────────────────────────────────────────────────────────
+        st.markdown("<hr/>", unsafe_allow_html=True)
+
+        # ── Signal filters ──────────────────────────────────────────────────
         st.markdown(
             '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin:16px 0 6px;">Signal Filters</div>',
+            'letter-spacing:2px;text-transform:uppercase;margin:4px 0 6px;">Signal Filters</div>',
             unsafe_allow_html=True,
         )
-        pct_thresh = st.slider("% from extreme (0 = exact, 5 = within 5%)", 0, 10, 2, key="pct_thresh")
-        vol_mult   = st.slider("Min volume surge multiple (x)", 1.0, 5.0, 1.5, 0.5, key="vol_mult")
-        min_mktcap = st.slider("Min Market Cap (Rs Cr)", 0, 50000, 0, 500, key="min_mktcap")
+        threshold   = 0.0   # strict: only stocks that actually HIT the 52W extreme
+        window      = 252   # 52-week lookback
+        vol_surge   = st.slider("Min volume surge multiple (x)", 1.0, 5.0, 1.5, 0.5)
+        use_vol_filter = st.toggle("Volume Surge filter", value=False,
+                                   help="Only show stocks with unusual volume")
 
-        # ── Auto refresh ───────────────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="font-size:10px;font-weight:700;color:#6E7681;'
-            'letter-spacing:2px;text-transform:uppercase;margin:16px 0 6px;">Auto Refresh</div>',
-            unsafe_allow_html=True,
-        )
-        auto_refresh = st.checkbox("Auto-refresh every 60s", value=False, key="auto_refresh")
+        st.markdown("<hr/>", unsafe_allow_html=True)
 
-        params = {
-            "universe":     universe,
-            "custom_txt":   custom_txt,
-            "pct_thresh":   pct_thresh,
-            "vol_mult":     vol_mult,
-            "min_mktcap":   min_mktcap,
-            "auto_refresh": auto_refresh,
-        }
-    return params
+        # ── Auto-refresh ────────────────────────────────────────────────────
+        auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
+
+        st.markdown("<hr/>", unsafe_allow_html=True)
+
+        # ── Run button ──────────────────────────────────────────────────────
+        run = st.button("▶  Run Screen", use_container_width=True, type="primary")
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        # ── Downloads (only when results exist) ─────────────────────────────
+        if "screen_results" in st.session_state:
+            results = st.session_state["screen_results"]
+            highs_df = results.get("highs", pd.DataFrame())
+            lows_df  = results.get("lows",  pd.DataFrame())
+            if not highs_df.empty or not lows_df.empty:
+                all_df = pd.concat([highs_df, lows_df], ignore_index=True)
+                csv = all_df.to_csv(index=False).encode()
+                st.download_button(
+                    "⬇  Download CSV",
+                    data=csv,
+                    file_name=f"nifty52w_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+    return {
+        "threshold":      threshold,
+        "vol_surge":      vol_surge,
+        "use_vol_filter": use_vol_filter,
+        "window":         window,
+        "universe":       universe,
+        "custom_txt":     custom_txt,
+        "run":            run,
+        "auto_refresh":   auto_refresh,
+    }
 
 
 # ══════════════════════════════════════════════════════════════════════════════
