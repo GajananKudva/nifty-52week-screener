@@ -383,13 +383,14 @@ class DataEngine:
 
         logger.info(f"Phase 1 done: {len(candidates)} candidates within {threshold_pct:.1f}%")
 
-        # Phase 2 — batch yfinance download (single HTTP call for all candidates)
-        end_date   = datetime.now() + timedelta(days=1)
-        start_date = datetime.now() - timedelta(days=45)
+        # Phase 2 — yfinance only needed when volume surge filter is ON
+        needs_yf     = self.config.volume_surge_threshold > 0
         cand_tickers = [s["ticker"] for s in candidates]
-
         batch_df: dict[str, pd.DataFrame] = {}
-        if cand_tickers:
+
+        if needs_yf and cand_tickers:
+            end_date   = datetime.now() + timedelta(days=1)
+            start_date = datetime.now() - timedelta(days=45)
             try:
                 raw = yf.download(
                     cand_tickers,
@@ -402,8 +403,7 @@ class DataEngine:
                     progress=False,
                 )
                 if len(cand_tickers) == 1:
-                    # yf.download with 1 ticker returns a flat DataFrame, not multi-level
-                    t = cand_tickers[0]
+                    t   = cand_tickers[0]
                     df_c = raw.copy()
                     if isinstance(df_c.columns, pd.MultiIndex):
                         df_c.columns = df_c.columns.get_level_values(0)
@@ -424,8 +424,7 @@ class DataEngine:
                         except Exception:
                             pass
             except Exception as exc:
-                logger.warning(f"Batch yfinance download failed ({exc}), falling back to serial")
-                # Serial fallback
+                logger.warning(f"Batch yfinance failed ({exc}), falling back to serial")
                 for t in cand_tickers:
                     try:
                         df_c = yf.Ticker(t).history(
@@ -441,30 +440,35 @@ class DataEngine:
                             batch_df[t] = df_c
                     except Exception as e2:
                         self._log_error(t, "nse_short_history_serial", e2)
-
-        logger.info(f"Phase 2 batch fetch: {len(batch_df)}/{len(cand_tickers)} tickers OK")
+            logger.info(f"Phase 2 batch fetch: {len(batch_df)}/{len(cand_tickers)} tickers OK")
+        else:
+            logger.info(f"Phase 2: yfinance skipped (vol filter off) — {len(candidates)} candidates from NSE only")
 
         all_records: list[dict] = []
         for s in candidates:
             ticker   = s["ticker"]
-            df_short = batch_df.get(ticker)
-            if df_short is None:
-                self._log_error(ticker, "nse_short_history", ValueError("Not in batch result"))
-                continue
+            df_short = batch_df.get(ticker)  # None when vol filter off
 
-            if len(df_short) < self.config.volume_window + 2:
-                continue
+            # Volume stats — from yfinance when available, else N/A
+            if df_short is not None and len(df_short) >= self.config.volume_window + 2:
+                current_vol   = float(df_short["Volume"].iloc[-1])
+                baseline_vols = df_short["Volume"].iloc[-(self.config.volume_window + 1):-1]
+                avg_vol_20d   = float(baseline_vols.mean())
+                if avg_vol_20d <= 0 or np.isnan(avg_vol_20d):
+                    avg_vol_20d = 0.0
+                volume_surge  = (current_vol / avg_vol_20d) if avg_vol_20d > 0 else None
+            else:
+                # Vol filter is off — NSE volume field used for display only
+                current_vol  = float(_f(s.get("volume")) or 0)
+                avg_vol_20d  = 0.0
+                volume_surge = None
 
-            current_vol   = float(df_short["Volume"].iloc[-1])
-            baseline_vols = df_short["Volume"].iloc[-(self.config.volume_window + 1):-1]
-            avg_vol_20d   = float(baseline_vols.mean())
-            if avg_vol_20d <= 0 or np.isnan(avg_vol_20d):
-                continue
-
-            volume_surge  = current_vol / avg_vol_20d
             near_wkh      = s.get("near_wkh", 999.0)
             near_wkl      = s.get("near_wkl", 999.0)
-            vol_confirmed = volume_surge >= self.config.volume_surge_threshold
+            vol_confirmed = (
+                volume_surge is not None and
+                volume_surge >= self.config.volume_surge_threshold
+            ) if needs_yf else False
 
             # Signal on proximity only
             if s["_candidate_high"]:
@@ -474,25 +478,26 @@ class DataEngine:
             else:
                 signal = None
 
+            # Price — LTP from NSE (yfinance close as fallback if available)
             try:
                 current_price = float(s["last_price"] or 0)
-                if current_price <= 0:
+                if current_price <= 0 and df_short is not None:
                     current_price = float(df_short["Close"].iloc[-1])
             except (TypeError, ValueError):
-                current_price = float(df_short["Close"].iloc[-1])
+                current_price = float(df_short["Close"].iloc[-1]) if df_short is not None else 0.0
 
             try:
                 year_high = float(s["year_high"])
                 year_low  = float(s["year_low"])
             except (TypeError, ValueError):
-                year_high = float(df_short["High"].max())
-                year_low  = float(df_short["Low"].min())
+                year_high = float(df_short["High"].max()) if df_short is not None else 0.0
+                year_low  = float(df_short["Low"].min())  if df_short is not None else 0.0
 
             pct_from_high = (near_wkh or 0.0) / 100.0
             pct_from_low  = (near_wkl or 0.0) / 100.0
 
             def trailing_ret(n_days: int) -> Optional[float]:
-                if len(df_short) > n_days:
+                if df_short is not None and len(df_short) > n_days:
                     base = float(df_short["Close"].iloc[-n_days - 1])
                     return round((current_price / base - 1) * 100, 2) if base > 0 else None
                 return None
