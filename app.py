@@ -1463,8 +1463,10 @@ def _gemini_major_catalyst(ticker: str, company: str, sector: str,
     Use Gemini with Google Search grounding to find the major catalyst.
     Falls back to {} on any failure so caller can try Groq instead.
     """
+    import logging as _log
+    _glog = _log.getLogger("gemini_catalyst")
     if not _GEMINI_OK:
-        logger.warning("Gemini not configured — skipping")
+        _glog.warning("Gemini not configured — skipping")
         return {}
     try:
         from datetime import date as _date
@@ -1507,9 +1509,9 @@ If nothing specific found, set is_stale to true and headline to a fundamental re
                 )
             )
             result_text = _resp.text
-            logger.info(f"Gemini (google-genai SDK) OK for {ticker}")
+            _glog.info(f"Gemini (google-genai SDK) OK for {ticker}")
         except Exception as e1:
-            logger.warning(f"google-genai SDK failed ({e1}), trying google-generativeai")
+            _glog.warning(f"google-genai SDK failed ({e1}), trying google-generativeai")
 
         # ── Fallback: google-generativeai SDK (Gemini 1.5) ────────────────────
         if result_text is None:
@@ -1523,9 +1525,9 @@ If nothing specific found, set is_stale to true and headline to a fundamental re
                 )
                 _resp2 = model.generate_content(prompt)
                 result_text = _resp2.text
-                logger.info(f"Gemini (generativeai SDK) OK for {ticker}")
+                _glog.info(f"Gemini (generativeai SDK) OK for {ticker}")
             except Exception as e2:
-                logger.error(f"Both Gemini SDKs failed for {ticker}: {e2}")
+                _glog.error(f"Both Gemini SDKs failed for {ticker}: {e2}")
                 return {}
 
         raw = (result_text or "").strip()
@@ -1542,7 +1544,7 @@ If nothing specific found, set is_stale to true and headline to a fundamental re
         return json.loads(raw)
 
     except Exception as e:
-        logger.error(f"_gemini_major_catalyst failed for {ticker}: {e}")
+        _glog.error(f"_gemini_major_catalyst failed for {ticker}: {e}")
         return {}
 
 

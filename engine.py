@@ -172,7 +172,18 @@ class DataEngine:
             "profit_margin": None, "debt_to_equity": None, "return_on_equity": None,
         }
         try:
-            info = yf.Ticker(ticker).info
+            # Retry once on rate-limit with a short sleep
+            for _attempt in range(2):
+                try:
+                    info = yf.Ticker(ticker).info
+                    break
+                except Exception as _e:
+                    if "429" in str(_e) or "rate" in str(_e).lower():
+                        time.sleep(3)
+                    else:
+                        raise
+            else:
+                return defaults
             if not info:
                 return defaults
             defaults["company_name"] = info.get("longName") or info.get("shortName") or ticker
