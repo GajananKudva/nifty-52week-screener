@@ -1224,7 +1224,8 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             cached_ai = st.session_state.get(ck, {})
             pc = cached_ai.get("primary_catalyst", {})
             if pc and pc.get("headline"):
-                catalyst_text  = pc["headline"][:120]
+                _h = pc["headline"]
+                catalyst_text  = (_h[:197] + "…") if len(_h) > 200 else _h
                 catalyst_impact = pc.get("impact_pct", "")
                 break
 
@@ -1312,16 +1313,18 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         is_hi     = "HIGH" in signal.upper()
         direction = "52-week high" if is_hi else "52-week low"
         prompt = (
-            f"You are a senior equity analyst. In ONE punchy sentence, name the single "
-            f"most likely primary catalyst for {company} ({ticker}) hitting its {direction} today.\n\n"
-            f"Key data:\n"
-            f"  Sector    : {sector}\n"
-            f"  1M return : {f'{ret1m:+.1f}%' if ret1m else 'N/A'}\n"
-            f"  3M return : {f'{ret3m:+.1f}%' if ret3m else 'N/A'}\n"
-            f"  Vol surge : {f'{vsurge:.1f}x' if vsurge else 'N/A'}\n"
-            f"  P/E       : {f'{pe:.1f}x' if pe else 'N/A'}\n\n"
-            f'Return ONLY valid JSON: {{"headline": "one sentence with a specific figure or date", '
-            f'"impact_pct": "estimated % like +18% or -22%"}}'
+            f"Senior equity analyst task. Give the PRIMARY catalyst for {company} ({ticker}) "
+            f"hitting its {direction} today. Use the company's SHORT name, not full legal name.\n\n"
+            f"Data: Sector={sector}, 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
+            f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'}, "
+            f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'}, "
+            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
+            f"Rules:\n"
+            f"- headline MUST be under 90 characters\n"
+            f"- Start with the catalyst, not the company name\n"
+            f"- Include one specific figure (%, Rs amount, or multiple)\n\n"
+            f'Return ONLY valid JSON: {{"headline": "short catalyst under 90 chars", '
+            f'"impact_pct": "e.g. +18% or -22%"}}'
         )
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
