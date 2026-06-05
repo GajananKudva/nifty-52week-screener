@@ -1937,87 +1937,193 @@ def _fetch_yf_company_context(ticker: str) -> str:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_yf_upgrades_context(ticker: str) -> str:
-    """Recent broker upgrade/downgrade actions from yfinance."""
+    """Analyst consensus + price targets from yfinance info.
+    More reliable than upgrades_downgrades for Indian NSE stocks."""
     try:
         import yfinance as yf
+        info = yf.Ticker(ticker).info
+        lines = []
+
+        # Analyst consensus (almost always available)
+        rec_key  = info.get("recommendationKey", "")
+        n_analysts = info.get("numberOfAnalystOpinions")
+        if rec_key or n_analysts:
+            label = rec_key.replace("_", " ").title() if rec_key else "N/A"
+            lines.append(f"Analyst Consensus: {label}"
+                         + (f" ({n_analysts} analysts)" if n_analysts else ""))
+
+        # Price targets
+        target_mean = info.get("targetMeanPrice")
+        target_hi   = info.get("targetHighPrice")
+        target_lo   = info.get("targetLowPrice")
+        curr        = info.get("currentPrice") or info.get("regularMarketPrice")
+        if target_mean and curr:
+            upside = ((target_mean - curr) / curr) * 100
+            lines.append(f"Consensus Target: Rs{target_mean:,.0f} "
+                         f"({upside:+.1f}% vs current)  "
+                         f"[Range Rs{target_lo:,.0f}–Rs{target_hi:,.0f}]"
+                         if target_hi and target_lo else
+                         f"Consensus Target: Rs{target_mean:,.0f} ({upside:+.1f}%)")
+
+        # Recent upgrades/downgrades (when available)
         from datetime import datetime, timedelta
-        t = yf.Ticker(ticker)
-        upgrades = t.upgrades_downgrades
-        if upgrades is None or upgrades.empty:
-            return ""
-        cutoff = datetime.now() - timedelta(days=90)
-        recent = upgrades[upgrades.index >= cutoff].head(10)
-        if recent.empty:
-            return ""
-        lines = ["Recent Broker Rating Actions (last 90 days):"]
-        for date, r in recent.iterrows():
-            firm   = r.get("Firm", "Unknown")
-            action = r.get("ToGrade", "") or r.get("Action", "")
-            frm    = r.get("FromGrade", "")
-            line   = f"  {date.strftime('%b %d, %Y')}: {firm} — {action}"
-            if frm:
-                line += f" (from {frm})"
-            lines.append(line)
-        return "\n".join(lines)
+        try:
+            ud = yf.Ticker(ticker).upgrades_downgrades
+            if ud is not None and not ud.empty:
+                cutoff = datetime.now() - timedelta(days=90)
+                recent = ud[ud.index >= cutoff].head(5)
+                if not recent.empty:
+                    lines.append("Recent Rating Actions (last 90 days):")
+                    for date, r in recent.iterrows():
+                        firm   = r.get("Firm", "Unknown")
+                        action = r.get("ToGrade", "") or r.get("Action", "")
+                        frm    = r.get("FromGrade", "")
+                        line   = f"  {date.strftime('%b %d, %Y')}: {firm} — {action}"
+                        if frm:
+                            line += f" (from {frm})"
+                        lines.append(line)
+        except Exception:
+            pass
+
+        return "\n".join(lines) if lines else ""
     except Exception:
         return ""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_fmp_earnings_surprise_context(ticker: str) -> str:
-    """Earnings beat/miss history from FMP (last 4 quarters)."""
+    """Earnings beat/miss history — yfinance quarterly earnings (primary),
+    FMP earnings-surprises (fallback)."""
     try:
-        import requests
-        clean = ticker.replace(".NS", "").replace(".BO", "")
-        url = (f"https://financialmodelingprep.com/api/v3/earnings-surprises/{clean}"
-               f"?limit=4&apikey={_FMP_KEY}")
-        resp = requests.get(url, timeout=10)
-        if resp.status_code != 200 or not resp.json():
-            return ""
-        lines = ["Earnings Surprise History (last 4 quarters):"]
-        for q in resp.json()[:4]:
-            date   = q.get("date", "")
-            actual = q.get("actualEarningResult")
-            est    = q.get("estimatedEarning")
-            if actual is not None and est and est != 0:
-                surprise = ((actual - est) / abs(est)) * 100
-                tag = "BEAT" if surprise > 0 else "MISS"
-                lines.append(f"  {date}: EPS {tag} by {abs(surprise):.1f}% "
-                              f"(actual Rs{actual:.2f}, est Rs{est:.2f})")
-        return "\n".join(lines) if len(lines) > 1 else ""
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+
+        # Try yfinance earnings_history first (most reliable for NSE)
+        try:
+            eh = t.earnings_history
+            if eh is not None and not eh.empty:
+                lines = ["Earnings Surprise History (last 4 quarters):"]
+                for _, row in eh.tail(4).iterrows():
+                    date    = str(row.get("quarter", ""))[:10]
+                    actual  = row.get("epsActual")
+                    est     = row.get("epsEstimate")
+                    surp    = row.get("surprisePercent")
+                    if actual is not None and est is not None:
+                        tag = "BEAT" if (surp or 0) > 0 else "MISS"
+                        lines.append(
+                            f"  {date}: EPS {tag} {f'{surp:+.1f}%' if surp else ''} "
+                            f"(actual Rs{actual:.2f}, est Rs{est:.2f})"
+                        )
+                if len(lines) > 1:
+                    return "\n".join(lines)
+        except Exception:
+            pass
+
+        # Fallback: quarterly income for QoQ EPS trend
+        try:
+            qi = t.quarterly_income_stmt
+            if qi is not None and not qi.empty and "Net Income" in qi.index:
+                ni = qi.loc["Net Income"].dropna().head(4)
+                if len(ni) >= 2:
+                    lines = ["Quarterly Net Income Trend (Rs Cr):"]
+                    for col, val in ni.items():
+                        lines.append(f"  {str(col)[:10]}: Rs{val/1e7:,.0f} Cr")
+                    return "\n".join(lines)
+        except Exception:
+            pass
+
+        # Final fallback: FMP
+        import requests, os
+        fmp_key = os.getenv("FMP_KEY", "")
+        if fmp_key:
+            clean = ticker.replace(".NS","").replace(".BO","")
+            r = requests.get(
+                f"https://financialmodelingprep.com/api/v3/earnings-surprises/{clean}"
+                f"?limit=4&apikey={fmp_key}", timeout=10)
+            if r.status_code == 200 and r.json():
+                lines = ["Earnings Surprise History (FMP):"]
+                for q in r.json()[:4]:
+                    actual = q.get("actualEarningResult")
+                    est    = q.get("estimatedEarning")
+                    if actual is not None and est and est != 0:
+                        surp = ((actual - est) / abs(est)) * 100
+                        tag  = "BEAT" if surp > 0 else "MISS"
+                        lines.append(f"  {q.get('date','')}: EPS {tag} by {abs(surp):.1f}%")
+                if len(lines) > 1:
+                    return "\n".join(lines)
+        return ""
     except Exception:
         return ""
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_bse_announcements_context(ticker: str) -> str:
-    """Recent corporate announcements from BSE India API (free, no key needed)."""
+    """Recent corporate announcements — tries BSE API with scrip lookup,
+    falls back to yfinance news headlines."""
+    import requests
+    clean = ticker.replace(".NS", "").replace(".BO", "")
+
+    # Step 1: Look up BSE scrip code from NSE ticker
+    scrip_code = ""
     try:
-        import requests
-        clean = ticker.replace(".NS", "").replace(".BO", "")
-        url = (f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementDt/w"
-               f"?scripcd=&strCat=-1&strPrevDate=&strScrip={clean}"
-               f"&strSearch=P&strToDate=&strType=C&subcategory=-1")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-            "Referer":    "https://www.bseindia.com/",
-            "Origin":     "https://www.bseindia.com",
-        }
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            return ""
-        rows = resp.json().get("Table", [])[:6]
-        if not rows:
-            return ""
-        lines = ["Recent BSE Corporate Announcements:"]
-        for ann in rows:
-            date = (ann.get("NewsDate") or ann.get("DissemDt") or "")[:10]
-            cat  = ann.get("Categoryname") or ann.get("CATEGORYNAME") or ""
-            hdl  = (ann.get("HEADLINE") or ann.get("Headline") or "")[:100]
-            lines.append(f"  {date}: [{cat}] {hdl}")
-        return "\n".join(lines) if len(lines) > 1 else ""
+        lookup_url = (f"https://api.bseindia.com/BseIndiaAPI/api/GetCompanySearch/w"
+                      f"?strScrip={clean}&strType=L")
+        headers = {"User-Agent": "Mozilla/5.0",
+                   "Referer": "https://www.bseindia.com/",
+                   "Origin": "https://www.bseindia.com"}
+        lr = requests.get(lookup_url, headers=headers, timeout=8)
+        if lr.status_code == 200:
+            items = lr.json() if isinstance(lr.json(), list) else lr.json().get("Table", [])
+            if items:
+                scrip_code = str(items[0].get("SECURITY_CODE") or
+                                 items[0].get("scripCode") or "")
     except Exception:
-        return ""
+        pass
+
+    # Step 2: Fetch announcements using scrip code (or name fallback)
+    if scrip_code:
+        try:
+            ann_url = (f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementDt/w"
+                       f"?scripcd={scrip_code}&strCat=-1&strPrevDate=&strScrip="
+                       f"&strSearch=P&strToDate=&strType=C&subcategory=-1")
+            ar = requests.get(ann_url, headers=headers, timeout=10)
+            if ar.status_code == 200:
+                rows = ar.json().get("Table", [])[:6]
+                if rows:
+                    lines = ["Recent BSE Corporate Announcements:"]
+                    for ann in rows:
+                        date = (ann.get("NewsDate") or ann.get("DissemDt") or "")[:10]
+                        cat  = ann.get("Categoryname") or ann.get("CATEGORYNAME") or ""
+                        hdl  = (ann.get("HEADLINE") or ann.get("Headline") or "")[:100]
+                        lines.append(f"  {date}: [{cat}] {hdl}")
+                    if len(lines) > 1:
+                        return "\n".join(lines)
+        except Exception:
+            pass
+
+    # Step 3: Fallback — yfinance news headlines
+    try:
+        import yfinance as yf
+        news = yf.Ticker(ticker).news or []
+        if news:
+            lines = ["Recent News (yfinance):"]
+            for item in news[:5]:
+                title = (item.get("title") or "")[:100]
+                pub   = item.get("providerPublishTime", "")
+                src   = item.get("publisher", "")
+                if title:
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromtimestamp(pub).strftime("%b %d") if pub else ""
+                    except Exception:
+                        dt = ""
+                    lines.append(f"  {dt}: {title} [{src}]")
+            if len(lines) > 1:
+                return "\n".join(lines)
+    except Exception:
+        pass
+
+    return ""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -2536,7 +2642,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             upgrades_ctx = _fetch_yf_upgrades_context(ticker)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#F0B429"};">'
-            f'{"✅ Broker actions loaded" if upgrades_ctx else "⚠️ No recent broker actions"}</div>',
+            f'{"✅ Analyst consensus + targets loaded" if upgrades_ctx else "⚠️ Analyst data unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2545,7 +2651,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             earnings_surprise_ctx = _fetch_fmp_earnings_surprise_context(ticker)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if earnings_surprise_ctx else "#F0B429"};">'
-            f'{"✅ Earnings surprise history loaded" if earnings_surprise_ctx else "⚠️ Earnings history unavailable"}</div>',
+            f'{"✅ Earnings history loaded" if earnings_surprise_ctx else "⚠️ Earnings data unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2554,7 +2660,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             bse_ctx = _fetch_bse_announcements_context(ticker)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if bse_ctx else "#F0B429"};">'
-            f'{"✅ BSE announcements loaded" if bse_ctx else "⚠️ BSE data unavailable"}</div>',
+            f'{"✅ Announcements / news loaded" if bse_ctx else "⚠️ Announcements unavailable"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -2983,122 +3089,4 @@ def main():
         else:
             tickers = fetch_nifty500_live() or NIFTY_500_TICKERS or _NIFTY_50
 
-    # ── Run screen (only on explicit button click) ─────────────────
-    if p["run"]:
-        with st.status("Running screen…", expanded=True) as status:
-            st.write(f"⬇ Downloading price history for {len(tickers)} stocks via yfinance…")
-            results = _run_screen(tickers, p)
-            n_hi = len(results.get("highs", pd.DataFrame()))
-            n_lo = len(results.get("lows",  pd.DataFrame()))
-            status.update(
-                label=f"✅ Screen complete — {n_hi} breakout highs · {n_lo} breakdown lows",
-                state="complete", expanded=False,
-            )
-
-        # ── Parallel AI enrichment (post-screen, llama-3.1-8b-instant) ───────
-        _h = results.get("highs", pd.DataFrame())
-        _l = results.get("lows",  pd.DataFrame())
-        _total = len(_h) + len(_l)
-        if _total > 0 and _AI_OK:
-            with st.status(
-                f"🤖 AI pre-analysing {_total} stocks in parallel…",
-                expanded=False,
-            ) as enrich_status:
-                _n = _enrich_results_parallel(_h, _l)
-                enrich_status.update(
-                    label=f"✅ Primary catalysts ready for {_n} stocks",
-                    state="complete",
-                )
-
-    elif "screen_results" in st.session_state:
-        results = st.session_state["screen_results"]
-    else:
-        results = None
-
-    if not results:
-        st.markdown(
-            "<div style='text-align:center;padding:80px;color:#484F58;'>"
-            "<div style='font-size:48px;'>📊</div>"
-            "<div style='font-size:18px;font-weight:600;margin-top:16px;'>Nifty 52-Week Screener</div>"
-            "<div style='font-size:14px;margin-top:8px;color:#6B7280;'>"
-            "Select a universe in the sidebar, then press <b>▶ Run Screen</b> to find today's breakouts."
-            "</div>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        return
-
-    highs_df = results.get("highs", pd.DataFrame())
-    lows_df  = results.get("lows",  pd.DataFrame())
-    errors   = results.get("errors", [])
-    is_mock  = results.get("is_mock", False)
-
-    if is_mock:
-        st.warning(
-            "⚠ **Mock data active** — `engine.py` not found or all API calls failed. "
-            "Install dependencies and ensure `engine.py` is in the same folder.",
-            icon="⚠",
-        )
-
-    if highs_df.empty and lows_df.empty and not is_mock:
-        ts = st.session_state.get("screen_ts", datetime.now()).strftime("%H:%M:%S")
-        st.info(
-            f"**No stocks hit a 52-week extreme today** (screen run at {ts}).\n\n"
-            "The screener only flags stocks whose **session high** touched or exceeded "
-            "the 52-week high, or whose **session low** touched or breached the 52-week low. "
-            "On most trading days only a handful of stocks qualify — on quiet days, none.\n\n"
-            f"✅ Data feed is working — {len(tickers)} stocks were screened via yfinance."
-        )
-        if errors:
-            with st.expander(f"⚠ {len(errors)} fetch errors"):
-                st.dataframe(pd.DataFrame(errors), use_container_width=True)
-        return
-
-    st.markdown(
-        f"<div class='sec-hdr' style='margin-top:8px;'>"
-        f"&#9670; Today's Signals &nbsp;"
-        f"<span style='color:{_GREEN}'>&#8679; {len(highs_df)} Breakout Highs</span>"
-        f"&nbsp;&nbsp;"
-        f"<span style='color:{_RED}'>&#8681; {len(lows_df)} Breakdown Lows</span>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-
-    t_hi, t_lo, t_err = st.tabs([
-        f"▲  Breakout Highs  ({len(highs_df)})",
-        f"▼  Breakdown Lows  ({len(lows_df)})",
-        f"⚠  Errors  ({len(errors)})",
-    ])
-
-    with t_hi:
-        selected_hi = _render_signals_table(highs_df, key="hi")
-        if selected_hi and not highs_df.empty:
-            mask = highs_df["ticker"] == selected_hi
-            if mask.any():
-                row = highs_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_hi, row, p)
-
-    with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
-        if selected_lo and not lows_df.empty:
-            mask = lows_df["ticker"] == selected_lo
-            if mask.any():
-                row = lows_df[mask].iloc[0].to_dict()
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_lo, row, p)
-
-    with t_err:
-        if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
-        else:
-            err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
-
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+    # ── Run screen (only on explicit button click) ─────────�
