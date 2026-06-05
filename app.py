@@ -141,17 +141,6 @@ except Exception:
 
 _TAVILY_KEY   = _secret("TAVILY_API_KEY", "")
 _NEWSAPI_KEY  = _secret("NEWSAPI_KEY", "")
-_GEMINI_KEY   = _secret("GEMINI_API_KEY", "")
-_GEMINI_MODEL = _secret("GEMINI_MODEL", "gemini-1.5-flash")
-
-# ── Gemini client (optional — graceful fallback to Groq) ──────────────────────
-try:
-    import google.generativeai as _genai
-    if _GEMINI_KEY:
-        _genai.configure(api_key=_GEMINI_KEY)
-    _GEMINI_OK = bool(_GEMINI_KEY)
-except Exception:
-    _GEMINI_OK = False
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1350,29 +1339,15 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                         help=f"Get AI-powered major catalyst for {name}",
                         width="stretch",
                     ):
-                        with st.spinner(f"Searching live news for {name}…"):
+                        with st.spinner(f"Searching news for {name}…"):
                             _ret1m = _safe_float(row.get("ret_1m")) or 0
                             _ret3m = _safe_float(row.get("ret_3m")) or 0
                             _pe    = _safe_float(row.get("pe_ratio")) or 0
                             _px    = _safe_float(row.get("current_price")) or 0
-
-                            # Primary: Gemini with live Google Search grounding
-                            result = _gemini_major_catalyst(
+                            result = _quick_catalyst_groq(
                                 ticker, name, sector or "", signal,
                                 _px, _ret1m, _ret3m, vsurge or 0, _pe,
                             )
-
-                            # Fallback: Groq + pre-fetched Tavily context
-                            if not result.get("headline"):
-                                _news = _fetch_quick_news_context(ticker, name)
-                                _yf_c = build_yfinance_context(ticker) if _SCREENER_OK else ""
-                                result = _quick_catalyst_groq(
-                                    ticker, name, sector or "", signal,
-                                    _px, _ret1m, _ret3m, vsurge or 0, _pe,
-                                    news_context=_news,
-                                    yfinance_context=_yf_c,
-                                )
-
                             if result.get("headline"):
                                 st.session_state[ai_cache_key] = result
                                 st.rerun()
@@ -1455,18 +1430,73 @@ def _fetch_quick_news_context(ticker: str, company: str) -> str:
     return "\n".join(lines[:10]) if lines else ""
 
 
-def _gemini_major_catalyst(ticker: str, company: str, sector: str,
-                           signal: str, price: float,
-                           ret1m: float, ret3m: float,
-                           vsurge: float, pe: float) -> dict:
+def _tavily_search(query: str, days: int = 30) -> str:
+    """Execute a Tavily search and return formatted results sorted by date."""
+    if not _TAVILY_KEY:
+        return "Search unavailable — no Tavily key"
+    try:
+        import requests as _req
+        from datetime import date as _d
+        resp = _req.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key":        _TAVILY_KEY,
+                "query":          query,
+                "search_depth":   "advanced",
+                "include_answer": True,
+                "max_results":    7,
+                "days":           days,
+                "include_domains": [
+                    "economictimes.indiatimes.com", "moneycontrol.com",
+                    "livemint.com", "business-standard.com",
+                    "bseindia.com", "nseindia.com",
+                    "financialexpress.com", "ndtvprofit.com",
+                    "reuters.com", "thehindubuisessline.com",
+                ],
+            },
+            timeout=12,
+        )
+        if resp.status_code != 200:
+            return f"Search failed (HTTP {resp.status_code})"
+        data    = resp.json()
+        lines   = [f"[Search results as of {_d.today().strftime('%d %b %Y')}]"]
+        answer  = data.get("answer", "")
+        if answer:
+            lines.append(f"Summary: {answer[:400]}")
+        results = sorted(
+            data.get("results", []),
+            key=lambda x: x.get("published_date", ""),
+            reverse=True,
+        )
+        for r in results[:6]:
+            title    = (r.get("title") or "")[:120]
+            content  = (r.get("content") or "")[:200].replace("\n", " ")
+            pub_date = r.get("published_date", "")
+            source   = r.get("url", "").split("/")[2].replace("www.", "") if r.get("url") else ""
+            if title:
+                lines.append(f"[{source}] [{pub_date}] {title}  —  {content}")
+        return "\n\n".join(lines)
+    except Exception as exc:
+        return f"Search error: {exc}"
+
+
+def _quick_catalyst_groq(ticker: str, company: str, sector: str,
+                          signal: str, price: float,
+                          ret1m: float, ret3m: float,
+                          vsurge: float, pe: float) -> dict:
     """
-    Use Gemini with Google Search grounding to find the major catalyst.
-    Falls back to {} on any failure so caller can try Groq instead.
+    Groq + Tavily function-calling major catalyst.
+
+    Flow:
+      1. llama-3.3-70b-versatile receives the analyst prompt + a search_web tool.
+      2. Model calls search_web(query) — we execute via Tavily (advanced, last 30 days,
+         results sorted newest-first).
+      3. Model receives dated search results and produces the final JSON.
+
+    Uses the improved prompt with today's date, entity-isolation rules, and
+    explicit stale-news detection per the user's specification.
     """
-    import logging as _log
-    _glog = _log.getLogger("gemini_catalyst")
-    if not _GEMINI_OK:
-        _glog.warning("Gemini not configured — skipping")
+    if not _AI_OK:
         return {}
     try:
         from datetime import date as _date
@@ -1475,159 +1505,111 @@ def _gemini_major_catalyst(ticker: str, company: str, sector: str,
         direction    = "52-week high" if is_hi else "52-week low"
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-        prompt = f"""You are a senior equity analyst. Today is {today}.
+        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
 
-Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its {direction}.
+        # ── Tool definition ───────────────────────────────────────────────────
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": (
+                    "Search for recent news, BSE/NSE filings, and analyst reports about "
+                    "an Indian listed company. Use this to find what triggered a stock move."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Specific search query e.g. "
+                                "'ACME Solar NSE earnings order win June 2026 BSE filing'"
+                            ),
+                        }
+                    },
+                    "required": ["query"],
+                },
+            },
+        }]
 
-Market data: Price=Rs{price:,.0f} | 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'} | 3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'} | VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'} | P/E={f'{pe:.1f}x' if pe else 'N/A'}
-
-Search the web for news published in the last 30 days about {company} ({clean_ticker}).
-Prioritize: BSE/NSE filings, company investor-relations releases, tier-1 financial press (Economic Times, Mint, Moneycontrol, Business Standard).
+        system_msg = f"""You are a senior equity analyst. Today is {today}.
 
 ENTITY ISOLATION RULES (critical):
+- Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company.
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
-- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}.
-- If a headline refers to a group/holding entity rather than {clean_ticker} specifically, flag it as "group-level, not {clean_ticker}-specific."
+- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}, even if they share a brand or promoter.
+- If a headline refers to the group/holding entity rather than {clean_ticker} specifically, flag it as "group-level, not {clean_ticker}-specific" and exclude it.
+- If you cannot verify a catalyst names {company} directly, exclude it.
 
-Return a JSON object — no markdown fences, no extra text:
-{{"headline": "dated catalyst under 90 chars e.g. Jun 2026: ...", "impact_pct": "+18% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
+After searching, return ONLY this JSON — no markdown, no extra text:
+{{"headline": "DD Mon YYYY: specific catalyst under 90 chars", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
+Set is_stale=true if the most recent article you found is older than 7 days from today."""
 
-If nothing specific found, set is_stale to true and headline to a fundamental reason."""
-
-        # ── Try google-genai SDK first (Gemini 2.0+) ─────────────────────────
-        result_text = None
-        try:
-            from google import genai as _google_genai
-            from google.genai import types as _gtypes
-            _gc = _google_genai.Client(api_key=_GEMINI_KEY)
-            _resp = _gc.models.generate_content(
-                model=_GEMINI_MODEL,
-                contents=prompt,
-                config=_gtypes.GenerateContentConfig(
-                    tools=[_gtypes.Tool(google_search=_gtypes.GoogleSearch())],
-                    temperature=0.1,
-                )
-            )
-            result_text = _resp.text
-            _glog.info(f"Gemini (google-genai SDK) OK for {ticker}")
-        except Exception as e1:
-            _glog.warning(f"google-genai SDK failed ({e1}), trying google-generativeai")
-
-        # ── Fallback: google-generativeai SDK (Gemini 1.5) ────────────────────
-        if result_text is None:
-            try:
-                tool = _genai.protos.Tool(
-                    google_search_retrieval=_genai.protos.GoogleSearchRetrieval()
-                )
-                model = _genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    tools=[tool],
-                )
-                _resp2 = model.generate_content(prompt)
-                result_text = _resp2.text
-                _glog.info(f"Gemini (generativeai SDK) OK for {ticker}")
-            except Exception as e2:
-                _glog.error(f"Both Gemini SDKs failed for {ticker}: {e2}")
-                return {}
-
-        raw = (result_text or "").strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.rstrip("`").strip()
-        if not raw.startswith("{"):
-            import re as _re
-            m = _re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                raw = m.group(0)
-        return json.loads(raw)
-
-    except Exception as e:
-        _glog.error(f"_gemini_major_catalyst failed for {ticker}: {e}")
-        return {}
-
-
-def _quick_catalyst_groq(ticker: str, company: str, sector: str,
-                          signal: str, price: float,
-                          ret1m: float, ret3m: float,
-                          vsurge: float, pe: float,
-                          news_context: str = "",
-                          yfinance_context: str = "") -> dict:
-    """
-    Fast primary-catalyst call using llama-3.1-8b-instant on Groq.
-    news_context: pre-fetched yfinance headlines + Tavily results.
-    yfinance_context: analyst targets, EPS, margins from build_yfinance_context.
-    Combining both gives the model real quantitative grounding instead of
-    hallucinating from training knowledge.
-    Returns {headline, impact_pct} or {} on failure.
-    """
-    if not _AI_OK:
-        return {}
-    try:
-        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
-        is_hi     = "HIGH" in signal.upper()
-        direction = "52-week high" if is_hi else "52-week low"
-
-        news_block = (
-            f"\nRECENT NEWS & ANNOUNCEMENTS (use these as your primary source):\n"
-            f"{news_context}\n"
-        ) if news_context else "\n(No live news available — use training knowledge.)\n"
-
-        # Trim yfinance block to the most useful lines for a quick call
-        yf_block = ""
-        if yfinance_context:
-            # Keep analyst consensus, valuation, earnings, profitability lines only
-            yf_lines = [
-                ln for ln in yfinance_context.splitlines()
-                if any(kw in ln for kw in ("Analyst:", "Valuation:", "Earnings:", "Profitability:", "Market:"))
-            ]
-            if yf_lines:
-                yf_block = "\nFUNDAMENTALS (yfinance):\n" + "\n".join(yf_lines[:6]) + "\n"
-
-        has_news = bool(news_context and news_context.strip())
-
-        if not has_news:
-            # No real news → return a safe heuristic answer, never hallucinate
-            direction_word = "52-week high" if is_hi else "52-week low"
-            pct_str = f"{ret3m:+.1f}% over 3 months" if ret3m else (f"{ret1m:+.1f}% over 1 month" if ret1m else "sustained move")
-            vs_str  = f"{vsurge:.1f}× volume surge" if vsurge and vsurge >= 1.2 else "volume-backed move"
-            headline = f"{pct_str} with {vs_str} drives stock to {direction_word}"
-            return {"headline": headline[:90], "impact_pct": "N/A"}
-
-        clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
-        prompt = (
-            f"You are a senior equity analyst. Analyze ONLY {company} (NSE: {clean_ticker}), "
-            f"a {sector} company. It has just hit its {direction}.\n"
-            f"CRITICAL: Do NOT confuse {company} with any related group entity, subsidiary, or peer. "
-            f"Only report catalysts that explicitly name '{company}' or '{clean_ticker}'.\n\n"
-            f"Price Data: current=Rs{price:,.0f}, "
-            f"1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
-            f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'}, "
-            f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'}, "
-            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n"
-            f"{yf_block}"
-            f"{news_block}\n"
-            f"Task: From the news above, identify the SPECIFIC event causing this move.\n"
-            f"STRICT RULES:\n"
-            f"- Only cite Rs amounts, contract values, or dates that appear VERBATIM in the news above.\n"
-            f"- Do NOT invent, guess, or extrapolate figures not present in the news.\n"
-            f"- Do NOT use the ticker symbol in the headline — use the company name.\n"
-            f"- Do NOT describe volume or price movement — find the ROOT CAUSE.\n"
-            f"- If the news does not mention a specific catalyst, write a general fundamental reason.\n"
-            f"- Headline must be under 90 chars.\n\n"
-            f'JSON only: {{"headline": "specific catalyst under 90 chars", '
-            f'"impact_pct": "e.g. +18% or -22%"}}'
+        user_msg = (
+            f"{company} (NSE: {clean_ticker}) has just hit its {direction}.\n"
+            f"Price=Rs{price:,.0f} | 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'} | "
+            f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'} | "
+            f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'} | "
+            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
+            f"Search for the most recent news (last 7 days preferred, last 30 days acceptable) "
+            f"about {company} ({clean_ticker}) to identify what triggered this move. "
+            f"Prioritise BSE/NSE filings, earnings results, order wins, analyst upgrades/targets. "
+            f"State the publication date next to each catalyst found."
         )
-        resp = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            {"role": "user",   "content": user_msg},
+        ]
+
+        # ── Step 1: model decides what to search ─────────────────────────────
+        r1 = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            tools=tools,
+            tool_choice="auto",
             temperature=0.1,
-            max_tokens=180,
+            max_tokens=400,
+        )
+        msg1 = r1.choices[0].message
+
+        # ── Step 2: execute tool calls ────────────────────────────────────────
+        if msg1.tool_calls:
+            messages.append({
+                "role":       "assistant",
+                "content":    msg1.content or "",
+                "tool_calls": [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in msg1.tool_calls
+                ],
+            })
+            for tc in msg1.tool_calls:
+                if tc.function.name == "search_web":
+                    query        = json.loads(tc.function.arguments).get("query", "")
+                    search_result = _tavily_search(query, days=30)
+                    messages.append({
+                        "role":         "tool",
+                        "tool_call_id": tc.id,
+                        "content":      search_result,
+                    })
+        else:
+            # Model didn't call the tool — give it the data via a direct Tavily fetch
+            fallback_query   = f"{company} {clean_ticker} India stock news results announcement"
+            fallback_results = _tavily_search(fallback_query, days=30)
+            messages.append({"role": "user", "content": f"Search results:\n{fallback_results}"})
+
+        # ── Step 3: model reasons over results and returns JSON ───────────────
+        r2 = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.1,
+            max_tokens=300,
             response_format={"type": "json_object"},
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = r2.choices[0].message.content.strip()
         return json.loads(raw)
+
     except Exception:
         return {}
 
