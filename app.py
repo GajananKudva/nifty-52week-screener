@@ -1460,17 +1460,17 @@ def _gemini_major_catalyst(ticker: str, company: str, sector: str,
                            ret1m: float, ret3m: float,
                            vsurge: float, pe: float) -> dict:
     """
-    Use Gemini 1.5 Flash with Google Search grounding to find the major catalyst.
-    The model searches the web itself in real time — no pre-fetched context needed.
+    Use Gemini with Google Search grounding to find the major catalyst.
     Falls back to {} on any failure so caller can try Groq instead.
     """
     if not _GEMINI_OK:
+        logger.warning("Gemini not configured — skipping")
         return {}
     try:
         from datetime import date as _date
-        today     = _date.today().strftime("%d %B %Y")
-        is_hi     = "HIGH" in signal.upper()
-        direction = "52-week high" if is_hi else "52-week low"
+        today        = _date.today().strftime("%d %B %Y")
+        is_hi        = "HIGH" in signal.upper()
+        direction    = "52-week high" if is_hi else "52-week low"
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
         prompt = f"""You are a senior equity analyst. Today is {today}.
@@ -1486,38 +1486,63 @@ ENTITY ISOLATION RULES (critical):
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
 - Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}.
 - If a headline refers to a group/holding entity rather than {clean_ticker} specifically, flag it as "group-level, not {clean_ticker}-specific."
-- If you cannot verify a catalyst names {company} directly, exclude it.
 
-Return a JSON object with these exact fields:
-- "headline": the single most important dated catalyst under 90 chars (include the date e.g. "Jun 2026: ...")
-- "impact_pct": estimated % impact on the stock price e.g. "+18%" or "N/A"
-- "catalyst_date": publication date as "DD Mon YYYY" or "Not found"
-- "is_stale": true if the most recent news you found is older than 30 days, else false
-- "source": publication name e.g. "Economic Times"
+Return a JSON object — no markdown fences, no extra text:
+{{"headline": "dated catalyst under 90 chars e.g. Jun 2026: ...", "impact_pct": "+18% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
 
-If news is thin or nothing specific is found, set headline to a fundamental reason and is_stale to true.
-Return ONLY valid JSON, no markdown fences."""
+If nothing specific found, set is_stale to true and headline to a fundamental reason."""
 
-        model = _genai.GenerativeModel(
-            model_name=_GEMINI_MODEL,
-            tools=["google_search_retrieval"],
-        )
-        response = model.generate_content(prompt)
-        raw = response.text.strip()
-        # Strip markdown fences if present
+        # ── Try google-genai SDK first (Gemini 2.0+) ─────────────────────────
+        result_text = None
+        try:
+            from google import genai as _google_genai
+            from google.genai import types as _gtypes
+            _gc = _google_genai.Client(api_key=_GEMINI_KEY)
+            _resp = _gc.models.generate_content(
+                model=_GEMINI_MODEL,
+                contents=prompt,
+                config=_gtypes.GenerateContentConfig(
+                    tools=[_gtypes.Tool(google_search=_gtypes.GoogleSearch())],
+                    temperature=0.1,
+                )
+            )
+            result_text = _resp.text
+            logger.info(f"Gemini (google-genai SDK) OK for {ticker}")
+        except Exception as e1:
+            logger.warning(f"google-genai SDK failed ({e1}), trying google-generativeai")
+
+        # ── Fallback: google-generativeai SDK (Gemini 1.5) ────────────────────
+        if result_text is None:
+            try:
+                tool = _genai.protos.Tool(
+                    google_search_retrieval=_genai.protos.GoogleSearchRetrieval()
+                )
+                model = _genai.GenerativeModel(
+                    model_name="gemini-1.5-flash",
+                    tools=[tool],
+                )
+                _resp2 = model.generate_content(prompt)
+                result_text = _resp2.text
+                logger.info(f"Gemini (generativeai SDK) OK for {ticker}")
+            except Exception as e2:
+                logger.error(f"Both Gemini SDKs failed for {ticker}: {e2}")
+                return {}
+
+        raw = (result_text or "").strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
             raw = raw.rstrip("`").strip()
-        # Extract JSON object
         if not raw.startswith("{"):
             import re as _re
             m = _re.search(r"\{[\s\S]*\}", raw)
             if m:
                 raw = m.group(0)
         return json.loads(raw)
-    except Exception:
+
+    except Exception as e:
+        logger.error(f"_gemini_major_catalyst failed for {ticker}: {e}")
         return {}
 
 
