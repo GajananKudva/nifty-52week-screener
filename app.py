@@ -1299,14 +1299,86 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     return None if selected.startswith("—") else selected
 
 
+def _fetch_quick_news_context(ticker: str, company: str) -> str:
+    """
+    Lightweight news fetch for the parallel enrichment pass.
+    Combines yfinance headlines + a fast Tavily search.
+    Runs inside a worker thread — must be self-contained.
+    """
+    import requests as _req
+    from datetime import datetime
+    lines: list[str] = []
+
+    # ── yfinance news (fast, no quota cost) ──────────────────────────────────
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        news = t.news or []
+        for item in news[:5]:
+            content = item.get("content", {}) if isinstance(item, dict) else {}
+            title = (content.get("title") or item.get("title") or "")[:120]
+            pub   = (content.get("pubDate") or item.get("providerPublishTime") or "")
+            if title:
+                try:
+                    dt = datetime.fromtimestamp(pub).strftime("%b %d") if isinstance(pub, (int, float)) else str(pub)[:10]
+                except Exception:
+                    dt = ""
+                lines.append(f"[{dt}] {title}")
+    except Exception:
+        pass
+
+    # ── Tavily quick search (3 results, basic depth, ~1s) ────────────────────
+    if _TAVILY_KEY:
+        try:
+            clean = ticker.replace(".NS", "").replace(".BO", "")
+            query = f"{company} {clean} India stock news earnings results announcement 2025 2026"
+            resp = _req.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key":        _TAVILY_KEY,
+                    "query":          query,
+                    "search_depth":   "basic",
+                    "include_answer": True,
+                    "max_results":    5,
+                    "include_domains": [
+                        "economictimes.indiatimes.com", "moneycontrol.com",
+                        "livemint.com", "business-standard.com",
+                        "financialexpress.com", "ndtvprofit.com",
+                        "bseindia.com",
+                    ],
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                answer = data.get("answer", "")
+                if answer:
+                    lines.insert(0, f"[Tavily summary] {answer[:300]}")
+                for r in data.get("results", [])[:4]:
+                    title   = (r.get("title") or "")[:100]
+                    snippet = (r.get("content") or "")[:150]
+                    src     = r.get("url", "").split("/")[2] if r.get("url") else ""
+                    if title:
+                        lines.append(f"[{src}] {title} — {snippet}")
+        except Exception:
+            pass
+
+    return "\n".join(lines[:10]) if lines else ""
+
+
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
                           signal: str, price: float,
                           ret1m: float, ret3m: float,
-                          vsurge: float, pe: float) -> dict:
+                          vsurge: float, pe: float,
+                          news_context: str = "",
+                          yfinance_context: str = "") -> dict:
     """
     Fast primary-catalyst call using llama-3.1-8b-instant on Groq.
+    news_context: pre-fetched yfinance headlines + Tavily results.
+    yfinance_context: analyst targets, EPS, margins from build_yfinance_context.
+    Combining both gives the model real quantitative grounding instead of
+    hallucinating from training knowledge.
     Returns {headline, impact_pct} or {} on failure.
-    Designed to be called in parallel for all screener hits.
     """
     if not _AI_OK:
         return {}
@@ -1314,30 +1386,62 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
         is_hi     = "HIGH" in signal.upper()
         direction = "52-week high" if is_hi else "52-week low"
+
+        news_block = (
+            f"\nRECENT NEWS & ANNOUNCEMENTS (use these as your primary source):\n"
+            f"{news_context}\n"
+        ) if news_context else "\n(No live news available — use training knowledge.)\n"
+
+        # Trim yfinance block to the most useful lines for a quick call
+        yf_block = ""
+        if yfinance_context:
+            # Keep analyst consensus, valuation, earnings, profitability lines only
+            yf_lines = [
+                ln for ln in yfinance_context.splitlines()
+                if any(kw in ln for kw in ("Analyst:", "Valuation:", "Earnings:", "Profitability:", "Market:"))
+            ]
+            if yf_lines:
+                yf_block = "\nFUNDAMENTALS (yfinance):\n" + "\n".join(yf_lines[:6]) + "\n"
+
+        has_news = bool(news_context and news_context.strip())
+
+        if not has_news:
+            # No real news → return a safe heuristic answer, never hallucinate
+            direction_word = "52-week high" if is_hi else "52-week low"
+            pct_str = f"{ret3m:+.1f}% over 3 months" if ret3m else (f"{ret1m:+.1f}% over 1 month" if ret1m else "sustained move")
+            vs_str  = f"{vsurge:.1f}× volume surge" if vsurge and vsurge >= 1.2 else "volume-backed move"
+            headline = f"{pct_str} with {vs_str} drives stock to {direction_word}"
+            return {"headline": headline[:90], "impact_pct": "N/A"}
+
+        clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
         prompt = (
-            f"You are a senior equity analyst. {company} ({sector}) just hit its {direction}.\n\n"
-            f"Performance: 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
+            f"You are a senior equity analyst. Analyze ONLY {company} (NSE: {clean_ticker}), "
+            f"a {sector} company. It has just hit its {direction}.\n"
+            f"CRITICAL: Do NOT confuse {company} with any related group entity, subsidiary, or peer. "
+            f"Only report catalysts that explicitly name '{company}' or '{clean_ticker}'.\n\n"
+            f"Price Data: current=Rs{price:,.0f}, "
+            f"1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
             f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'}, "
             f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'}, "
-            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
-            f"Task: What SPECIFIC event, announcement, or fundamental development is CAUSING "
-            f"this move? Do NOT just say 'volume surge' or 'price moved' — that is the effect, "
-            f"not the cause. Identify the REASON: e.g. earnings beat, contract win, "
-            f"policy change, sector re-rating, management guidance, FII buying thesis.\n\n"
-            f"Good examples:\n"
-            f"  'Q4 PAT up 34% to Rs 2,450 Cr, beat estimates by 12%'\n"
-            f"  'Rs 3,200 Cr highway contract win from NHAI'\n"
-            f"  'RBI rate cut lifted entire NBFC sector by 4-8%'\n"
-            f"  'Promoter increased stake by 2.4% in open market'\n\n"
-            f"Rules: under 90 chars, use company short name, include one specific figure.\n\n"
-            f'JSON only: {{"headline": "specific cause under 90 chars", '
-            f'"impact_pct": "estimated % like +18% or -22%"}}'
+            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n"
+            f"{yf_block}"
+            f"{news_block}\n"
+            f"Task: From the news above, identify the SPECIFIC event causing this move.\n"
+            f"STRICT RULES:\n"
+            f"- Only cite Rs amounts, contract values, or dates that appear VERBATIM in the news above.\n"
+            f"- Do NOT invent, guess, or extrapolate figures not present in the news.\n"
+            f"- Do NOT use the ticker symbol in the headline — use the company name.\n"
+            f"- Do NOT describe volume or price movement — find the ROOT CAUSE.\n"
+            f"- If the news does not mention a specific catalyst, write a general fundamental reason.\n"
+            f"- Headline must be under 90 chars.\n\n"
+            f'JSON only: {{"headline": "specific catalyst under 90 chars", '
+            f'"impact_pct": "e.g. +18% or -22%"}}'
         )
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
-            max_tokens=120,
+            max_tokens=180,
             response_format={"type": "json_object"},
         )
         raw = resp.choices[0].message.content.strip()
@@ -1348,14 +1452,14 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
 
 def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> int:
     """
-    Post-screen enrichment: fire one quick Groq call per screener hit in parallel.
-    Collects results in a plain dict (thread-safe), then writes to session_state
-    in the main thread. Returns the count of stocks successfully enriched.
+    Post-screen enrichment: for each hit stock, fetch yfinance news + Tavily
+    in parallel, then fire a llama-3.1-8b-instant call with that real context.
+    Stores {primary_catalyst} in session_state. Returns enriched count.
     """
     if not _AI_OK:
         return 0
 
-    # Build task list — skip stocks already in cache
+    # Build task list — skip stocks already fully analysed
     tasks = []
     for sig, df in [("52W_HIGH", highs_df), ("52W_LOW", lows_df)]:
         if df is None or df.empty:
@@ -1364,11 +1468,14 @@ def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> i
             ticker = row.get("ticker", "")
             cache_key = f"ai_{ticker}_{sig}"
             if cache_key in st.session_state:
-                continue          # already fully analysed — don't overwrite
+                continue
+            sector_val = row.get("sector", "") or ""
+            if str(sector_val).lower() in ("nan", "none"):
+                sector_val = ""
             tasks.append({
                 "ticker":    ticker,
                 "company":   row.get("company_name", ticker),
-                "sector":    row.get("sector", ""),
+                "sector":    sector_val,
                 "signal":    sig,
                 "price":     _safe_float(row.get("current_price")) or 0,
                 "ret1m":     _safe_float(row.get("ret_1m"))         or 0,
@@ -1381,13 +1488,36 @@ def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> i
     if not tasks:
         return 0
 
-    # Thread-safe accumulator — written only from worker threads
+    # Stagger tasks: Groq free tier allows ~30 req/min for llama-3.1-8b-instant.
+    # With 2 workers, space each task 2s apart so we stay well under the limit.
+    for i, task in enumerate(tasks):
+        task["_delay"] = i * 2.0   # 0s, 2s, 4s, 6s … — absorbed by the worker thread
+
     _results: dict = {}
 
     def _call_one(task: dict) -> None:
+        import time as _time
+        # Step 1a: fetch real news context (yfinance headlines + Tavily) — inside this thread
+        news_ctx = _fetch_quick_news_context(task["ticker"], task["company"])
+
+        # Step 1b: fetch yfinance fundamentals (analyst targets, EPS, margins) in parallel
+        yf_ctx = ""
+        try:
+            if _SCREENER_OK:
+                yf_ctx = build_yfinance_context(task["ticker"])
+        except Exception:
+            pass
+
+        # Small stagger before Groq call — prevents all threads hitting the API simultaneously
+        # Groq free tier: ~30 req/min for llama-3.1-8b-instant → need ≥2s between batches
+        _time.sleep(task.get("_delay", 0))
+
+        # Step 2: Groq call with both news AND fundamentals for grounded analysis
         pc = _quick_catalyst_groq(
             task["ticker"], task["company"], task["sector"], task["signal"],
             task["price"], task["ret1m"], task["ret3m"], task["vsurge"], task["pe"],
+            news_context=news_ctx,
+            yfinance_context=yf_ctx,
         )
         if pc and pc.get("headline"):
             _results[task["cache_key"]] = {
@@ -1404,14 +1534,17 @@ def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> i
             }
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    # Cap at 8 concurrent — keeps well within Groq's 30 RPM free-tier limit
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    # 2 workers max: each thread does Tavily + yfinance + Groq calls.
+    # Staggered delays above keep us under Groq's 30 req/min free-tier limit.
+    with ThreadPoolExecutor(max_workers=2) as pool:
         futures = {pool.submit(_call_one, t): t for t in tasks}
         try:
-            for _ in as_completed(futures, timeout=20):
+            # Timeout = 15s base + 3s per task (accounts for stagger delays)
+            _timeout = 15 + len(tasks) * 3
+            for _ in as_completed(futures, timeout=_timeout):
                 pass
         except Exception:
-            pass  # timeout — use whatever results arrived
+            pass
 
     # Write to session_state in the main Streamlit thread (thread-safe)
     for cache_key, data in _results.items():
@@ -1816,7 +1949,7 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
     clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
-    query = f"{company} {clean_ticker} stock India latest news analyst target 2024 2025"
+    query = f"{company} {clean_ticker} stock India latest news analyst target earnings results 2025 2026"
 
     try:
         import requests as _req
@@ -2757,7 +2890,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         )
         cache_key = f"ai_{ticker}_{sig}"
         if st.button("🔄 Retry Analysis", key=f"retry_{ticker}",
-                     use_container_width=True):
+                     width='stretch'):
             if cache_key in st.session_state:
                 del st.session_state[cache_key]
             st.rerun()
@@ -3049,7 +3182,20 @@ def _render_sidebar() -> dict:
         st.markdown("<hr/>", unsafe_allow_html=True)
 
         # ── Run button ──────────────────────────────────────────────────────
-        run = st.button("▶  Run Screen", use_container_width=True, type="primary")
+        run = st.button("▶  Run Screen", width='stretch', type="primary")
+
+        # ── Clear AI cache ──────────────────────────────────────────────────
+        ai_keys = [k for k in st.session_state if k.startswith("ai_")]
+        if ai_keys:
+            if st.button(
+                f"🗑  Clear AI Cache ({len(ai_keys)} entries)",
+                width='stretch',
+                help="Clears cached primary catalysts so they are re-fetched fresh on next screen run.",
+            ):
+                for k in ai_keys:
+                    del st.session_state[k]
+                st.success("AI cache cleared — run the screen again to refresh catalysts.")
+                st.rerun()
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
@@ -3066,7 +3212,7 @@ def _render_sidebar() -> dict:
                     data=csv,
                     file_name=f"nifty52w_{datetime.now().strftime('%Y%m%d')}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width='stretch',
                 )
 
     return {
@@ -3189,7 +3335,7 @@ def main():
         )
         if errors:
             with st.expander(f"⚠ {len(errors)} fetch errors"):
-                st.dataframe(pd.DataFrame(errors), use_container_width=True)
+                st.dataframe(pd.DataFrame(errors), width='stretch')
         return
 
     st.markdown(
@@ -3231,7 +3377,7 @@ def main():
             st.success("✅ No errors in the last run — all tickers processed cleanly.")
         else:
             err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, use_container_width=True)
+            st.dataframe(err_df, width='stretch')
 
     if p["auto_refresh"]:
         time.sleep(60)

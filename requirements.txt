@@ -3,24 +3,21 @@ yfinance>=0.2.40
 pandas>=2.2.0
 numpy>=1.26.0
 
-# ── AI / LLM ────────────────────────────────────────────────────────────────────────────
+# ── AI / LLM ────────────────────────────────────────────────────────────────
 openai>=1.30.0
 
-# ── Email & Templating ──────────────────────────────────────────────────────────
+# ── Email & Templating ──────────────────────────────────────────────────────
 jinja2>=3.1.4
 
-# ── Environment Variable Management ──────────────────────────────────────────────
+# ── Environment Variable Management ────────────────────────────────────────
 python-dotenv>=1.0.1
 
-# ── Dashboard (Streamlit app) ─────────────────────────────────────────────────────
+# ── Dashboard (Streamlit app) ───────────────────────────────────────────────
 streamlit>=1.35.0
 plotly>=5.20.0
 feedparser>=6.0.0          # Google News RSS parsing
 reportlab>=4.2.0           # PDF report generation
 
-# ── Web scraping (Screener.in) ────────────────────────────────────────────────────────
-beautifulsoup4>=4.12.0     # uses Python built-in html.parser (no lxml needed)
-
-# ── HTTP resilience (used internally by yfinance / openai) ─────────────────────────
+# ── HTTP resilience (used internally by yfinance / openai) ─────────────────
 requests>=2.32.0
 urllib3>=2.2.0
