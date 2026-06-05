@@ -1166,7 +1166,9 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     for _, row in df.iterrows():
         ticker  = row.get("ticker", "")
         name    = row.get("company_name", ticker)
-        sector  = row.get("sector", "")
+        sector  = row.get("sector", "") or ""
+        if str(sector).lower() in ("nan", "none", "n/a"):
+            sector = ""
         price   = _safe_float(row.get("current_price"))
         pct_hi  = _safe_float(row.get("pct_from_high"))
         pct_lo  = _safe_float(row.get("pct_from_low"))
@@ -1313,18 +1315,23 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         is_hi     = "HIGH" in signal.upper()
         direction = "52-week high" if is_hi else "52-week low"
         prompt = (
-            f"Senior equity analyst task. Give the PRIMARY catalyst for {company} ({ticker}) "
-            f"hitting its {direction} today. Use the company's SHORT name, not full legal name.\n\n"
-            f"Data: Sector={sector}, 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
+            f"You are a senior equity analyst. {company} ({sector}) just hit its {direction}.\n\n"
+            f"Performance: 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'}, "
             f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'}, "
             f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'}, "
             f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
-            f"Rules:\n"
-            f"- headline MUST be under 90 characters\n"
-            f"- Start with the catalyst, not the company name\n"
-            f"- Include one specific figure (%, Rs amount, or multiple)\n\n"
-            f'Return ONLY valid JSON: {{"headline": "short catalyst under 90 chars", '
-            f'"impact_pct": "e.g. +18% or -22%"}}'
+            f"Task: What SPECIFIC event, announcement, or fundamental development is CAUSING "
+            f"this move? Do NOT just say 'volume surge' or 'price moved' — that is the effect, "
+            f"not the cause. Identify the REASON: e.g. earnings beat, contract win, "
+            f"policy change, sector re-rating, management guidance, FII buying thesis.\n\n"
+            f"Good examples:\n"
+            f"  'Q4 PAT up 34% to Rs 2,450 Cr, beat estimates by 12%'\n"
+            f"  'Rs 3,200 Cr highway contract win from NHAI'\n"
+            f"  'RBI rate cut lifted entire NBFC sector by 4-8%'\n"
+            f"  'Promoter increased stake by 2.4% in open market'\n\n"
+            f"Rules: under 90 chars, use company short name, include one specific figure.\n\n"
+            f'JSON only: {{"headline": "specific cause under 90 chars", '
+            f'"impact_pct": "estimated % like +18% or -22%"}}'
         )
         resp = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -2065,28 +2072,37 @@ def _fetch_bse_announcements_context(ticker: str) -> str:
 
     # Step 1: Look up BSE scrip code from NSE ticker
     scrip_code = ""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.bseindia.com/",
+        "Origin": "https://www.bseindia.com",
+    }
+
+    # Step 1: Use a session to get BSE cookies first, then look up scrip code
     try:
+        sess = requests.Session()
+        sess.get("https://www.bseindia.com", headers=headers, timeout=8)  # get cookies
         lookup_url = (f"https://api.bseindia.com/BseIndiaAPI/api/GetCompanySearch/w"
                       f"?strScrip={clean}&strType=L")
-        headers = {"User-Agent": "Mozilla/5.0",
-                   "Referer": "https://www.bseindia.com/",
-                   "Origin": "https://www.bseindia.com"}
-        lr = requests.get(lookup_url, headers=headers, timeout=8)
+        lr = sess.get(lookup_url, headers=headers, timeout=8)
         if lr.status_code == 200:
-            items = lr.json() if isinstance(lr.json(), list) else lr.json().get("Table", [])
+            data = lr.json()
+            items = data if isinstance(data, list) else data.get("Table", [])
             if items:
                 scrip_code = str(items[0].get("SECURITY_CODE") or
                                  items[0].get("scripCode") or "")
     except Exception:
         pass
 
-    # Step 2: Fetch announcements using scrip code (or name fallback)
+    # Step 2: Fetch announcements with session cookies
     if scrip_code:
         try:
             ann_url = (f"https://api.bseindia.com/BseIndiaAPI/api/AnnGetAnnouncementDt/w"
                        f"?scripcd={scrip_code}&strCat=-1&strPrevDate=&strScrip="
                        f"&strSearch=P&strToDate=&strType=C&subcategory=-1")
-            ar = requests.get(ann_url, headers=headers, timeout=10)
+            ar = sess.get(ann_url, headers=headers, timeout=10)
             if ar.status_code == 200:
                 rows = ar.json().get("Table", [])[:6]
                 if rows:
@@ -2101,23 +2117,39 @@ def _fetch_bse_announcements_context(ticker: str) -> str:
         except Exception:
             pass
 
-    # Step 3: Fallback — yfinance news headlines
+    # Step 3: yfinance news (reliable for all major Indian stocks)
     try:
         import yfinance as yf
-        news = yf.Ticker(ticker).news or []
+        from datetime import datetime
+        t = yf.Ticker(ticker)
+        news = t.news or []
+        # yfinance 0.2.x returns list of dicts; newer versions may differ
+        if not news:
+            # try alternate attribute
+            try:
+                news = list(t.get_news() or [])
+            except Exception:
+                pass
         if news:
-            lines = ["Recent News (yfinance):"]
-            for item in news[:5]:
-                title = (item.get("title") or "")[:100]
-                pub   = item.get("providerPublishTime", "")
-                src   = item.get("publisher", "")
+            lines = ["Recent News:"]
+            for item in news[:6]:
+                # Handle both old and new yfinance news formats
+                content = item.get("content", {}) if isinstance(item, dict) else {}
+                title = (content.get("title") or item.get("title") or "")[:120]
+                pub   = (content.get("pubDate") or
+                         item.get("providerPublishTime") or
+                         item.get("pubDate") or "")
+                src   = (content.get("provider", {}).get("displayName", "") if isinstance(content.get("provider"), dict)
+                         else item.get("publisher") or "")
                 if title:
-                    from datetime import datetime
                     try:
-                        dt = datetime.fromtimestamp(pub).strftime("%b %d") if pub else ""
+                        if isinstance(pub, (int, float)):
+                            dt = datetime.fromtimestamp(pub).strftime("%b %d")
+                        else:
+                            dt = str(pub)[:10]
                     except Exception:
                         dt = ""
-                    lines.append(f"  {dt}: {title} [{src}]")
+                    lines.append(f"  {dt}: {title}" + (f" [{src}]" if src else ""))
             if len(lines) > 1:
                 return "\n".join(lines)
     except Exception:
