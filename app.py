@@ -89,7 +89,7 @@ try:
     from fmp import build_fmp_context
     _FMP_KEY = _secret("FMP_API_KEY")
     _FMP_OK  = bool(_FMP_KEY)
-except ImportError:
+except Exception:
     _FMP_OK  = False
     def build_fmp_context(_ticker: str) -> str:   # type: ignore[misc]
         return ""
@@ -99,7 +99,7 @@ try:
     from fred import build_fred_context, get_series_snapshot
     _FRED_KEY = _secret("FRED_API_KEY")
     _FRED_OK  = bool(_FRED_KEY)
-except ImportError:
+except Exception:
     _FRED_OK  = False
     def build_fred_context() -> str:              # type: ignore[misc]
         return ""
@@ -110,14 +110,14 @@ except ImportError:
 try:
     from india_macro import build_india_macro_context, get_dashboard_snapshot
     _INDIA_MACRO_OK = True
-except ImportError:
+except Exception:
     _INDIA_MACRO_OK = False
 
 # ── NSE/BSE stock-level data (no key needed) ──────────────────────────────────
 try:
     from nse_bse import build_nse_bse_context, get_nse_index_live
     _NSE_BSE_OK = True
-except ImportError:
+except Exception:
     _NSE_BSE_OK = False
     def build_nse_bse_context(_sym: str) -> str:  # type: ignore[misc]
         return ""
@@ -132,7 +132,7 @@ except ImportError:
 try:
     from screener_alpha import build_screener_context, build_yfinance_context
     _SCREENER_OK = True
-except ImportError:
+except Exception:
     _SCREENER_OK = False
     def build_screener_context(_sym: str) -> str:       # type: ignore[misc]
         return ""
