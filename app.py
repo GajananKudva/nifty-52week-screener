@@ -141,6 +141,17 @@ except Exception:
 
 _TAVILY_KEY   = _secret("TAVILY_API_KEY", "")
 _NEWSAPI_KEY  = _secret("NEWSAPI_KEY", "")
+_GEMINI_KEY   = _secret("GEMINI_API_KEY", "")
+_GEMINI_MODEL = _secret("GEMINI_MODEL", "gemini-1.5-flash")
+
+# ── Gemini client (optional — graceful fallback to Groq) ──────────────────────
+try:
+    import google.generativeai as _genai
+    if _GEMINI_KEY:
+        _genai.configure(api_key=_GEMINI_KEY)
+    _GEMINI_OK = bool(_GEMINI_KEY)
+except Exception:
+    _GEMINI_OK = False
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1261,10 +1272,14 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         signal          = row.get("signal", "BREAKOUT_HIGH" if is_hi else "BREAKDOWN_LOW")
         ai_cache_key    = f"quick_{ticker}_{signal}"
 
-        cached_quick = st.session_state.get(ai_cache_key, {})
+        cached_quick    = st.session_state.get(ai_cache_key, {})
+        catalyst_date   = ""
+        catalyst_stale  = False
         if cached_quick.get("headline"):
             catalyst_text   = cached_quick["headline"]
             catalyst_impact = cached_quick.get("impact_pct", "")
+            catalyst_date   = cached_quick.get("catalyst_date", "")
+            catalyst_stale  = bool(cached_quick.get("is_stale", False))
 
         # ── Card: 80% details left, 20% button right ──────────────────────────
         left_border = "#00c805" if is_hi else "#ff3b3b"
@@ -1276,12 +1291,23 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'{catalyst_impact}</span>'
         ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
 
+        stale_badge = (
+            ' <span style="font-size:10px;font-weight:700;background:#2d2208;'
+            'color:#F0B429;border-radius:3px;padding:1px 6px;">⚠ Stale</span>'
+        ) if catalyst_stale else ""
+
+        date_chip = (
+            f' <span style="font-size:10px;color:#6E7681;margin-left:6px;">'
+            f'{catalyst_date}</span>'
+        ) if catalyst_date and catalyst_date != "Not found" else ""
+
         catalyst_html = (
             f'<div style="margin-top:8px;">'
             f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-            f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">Major Catalyst</div>'
+            f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
+            f'Major Catalyst{stale_badge}</div>'
             f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-            f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
+            f'line-height:1.5;">{catalyst_text}{impact_chip}{date_chip}</div>'
             f'</div>'
         ) if catalyst_text else ""
 
@@ -1324,19 +1350,29 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                         help=f"Get AI-powered major catalyst for {name}",
                         width="stretch",
                     ):
-                        with st.spinner(f"Analysing {name}…"):
-                            _news  = _fetch_quick_news_context(ticker, name)
-                            _yf_c  = build_yfinance_context(ticker) if _SCREENER_OK else ""
+                        with st.spinner(f"Searching live news for {name}…"):
                             _ret1m = _safe_float(row.get("ret_1m")) or 0
                             _ret3m = _safe_float(row.get("ret_3m")) or 0
                             _pe    = _safe_float(row.get("pe_ratio")) or 0
-                            result = _quick_catalyst_groq(
+                            _px    = _safe_float(row.get("current_price")) or 0
+
+                            # Primary: Gemini with live Google Search grounding
+                            result = _gemini_major_catalyst(
                                 ticker, name, sector or "", signal,
-                                _safe_float(row.get("current_price")) or 0,
-                                _ret1m, _ret3m, vsurge or 0, _pe,
-                                news_context=_news,
-                                yfinance_context=_yf_c,
+                                _px, _ret1m, _ret3m, vsurge or 0, _pe,
                             )
+
+                            # Fallback: Groq + pre-fetched Tavily context
+                            if not result.get("headline"):
+                                _news = _fetch_quick_news_context(ticker, name)
+                                _yf_c = build_yfinance_context(ticker) if _SCREENER_OK else ""
+                                result = _quick_catalyst_groq(
+                                    ticker, name, sector or "", signal,
+                                    _px, _ret1m, _ret3m, vsurge or 0, _pe,
+                                    news_context=_news,
+                                    yfinance_context=_yf_c,
+                                )
+
                             if result.get("headline"):
                                 st.session_state[ai_cache_key] = result
                                 st.rerun()
@@ -1417,6 +1453,72 @@ def _fetch_quick_news_context(ticker: str, company: str) -> str:
             pass
 
     return "\n".join(lines[:10]) if lines else ""
+
+
+def _gemini_major_catalyst(ticker: str, company: str, sector: str,
+                           signal: str, price: float,
+                           ret1m: float, ret3m: float,
+                           vsurge: float, pe: float) -> dict:
+    """
+    Use Gemini 1.5 Flash with Google Search grounding to find the major catalyst.
+    The model searches the web itself in real time — no pre-fetched context needed.
+    Falls back to {} on any failure so caller can try Groq instead.
+    """
+    if not _GEMINI_OK:
+        return {}
+    try:
+        from datetime import date as _date
+        today     = _date.today().strftime("%d %B %Y")
+        is_hi     = "HIGH" in signal.upper()
+        direction = "52-week high" if is_hi else "52-week low"
+        clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
+
+        prompt = f"""You are a senior equity analyst. Today is {today}.
+
+Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its {direction}.
+
+Market data: Price=Rs{price:,.0f} | 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'} | 3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'} | VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'} | P/E={f'{pe:.1f}x' if pe else 'N/A'}
+
+Search the web for news published in the last 30 days about {company} ({clean_ticker}).
+Prioritize: BSE/NSE filings, company investor-relations releases, tier-1 financial press (Economic Times, Mint, Moneycontrol, Business Standard).
+
+ENTITY ISOLATION RULES (critical):
+- Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
+- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}.
+- If a headline refers to a group/holding entity rather than {clean_ticker} specifically, flag it as "group-level, not {clean_ticker}-specific."
+- If you cannot verify a catalyst names {company} directly, exclude it.
+
+Return a JSON object with these exact fields:
+- "headline": the single most important dated catalyst under 90 chars (include the date e.g. "Jun 2026: ...")
+- "impact_pct": estimated % impact on the stock price e.g. "+18%" or "N/A"
+- "catalyst_date": publication date as "DD Mon YYYY" or "Not found"
+- "is_stale": true if the most recent news you found is older than 30 days, else false
+- "source": publication name e.g. "Economic Times"
+
+If news is thin or nothing specific is found, set headline to a fundamental reason and is_stale to true.
+Return ONLY valid JSON, no markdown fences."""
+
+        model = _genai.GenerativeModel(
+            model_name=_GEMINI_MODEL,
+            tools=["google_search_retrieval"],
+        )
+        response = model.generate_content(prompt)
+        raw = response.text.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.rstrip("`").strip()
+        # Extract JSON object
+        if not raw.startswith("{"):
+            import re as _re
+            m = _re.search(r"\{[\s\S]*\}", raw)
+            if m:
+                raw = m.group(0)
+        return json.loads(raw)
+    except Exception:
+        return {}
 
 
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
