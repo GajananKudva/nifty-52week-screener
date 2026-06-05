@@ -1229,6 +1229,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         catalyst_color  = "#3FB950" if is_hi else "#F85149"
         catalyst_text   = ""
         catalyst_impact = ""
+        signal          = row.get("signal", "BREAKOUT_HIGH" if is_hi else "BREAKDOWN_LOW")
         ai_cache_key    = f"quick_{ticker}_{signal}"
 
         cached_quick = st.session_state.get(ai_cache_key, {})
