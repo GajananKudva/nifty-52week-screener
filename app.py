@@ -1196,80 +1196,64 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         else:
             vol_str = ""
 
-        # ── Business model (1 sentence from yfinance, cached) ───────────────
+        # ── Business model (2 sentences from yfinance, cached) ─────────────
         biz_line = ""
         try:
             biz_ctx = _fetch_yf_company_context(ticker)
             if biz_ctx:
-                # Extract first sentence of Business Description
                 desc_start = biz_ctx.find("Business Description:\n")
                 if desc_start >= 0:
-                    desc_text = biz_ctx[desc_start + len("Business Description:\n"):]
-                    # Take first sentence (up to first period + space or 140 chars)
-                    dot = desc_text.find(". ")
-                    snippet = desc_text[:dot + 1] if 0 < dot < 140 else desc_text[:140]
-                    biz_line = (
-                        f'<div style="font-size:12px;color:#8B949E;margin:3px 0 6px;'
-                        f'line-height:1.5;font-style:italic;">{snippet}</div>'
-                    )
+                    desc_text = biz_ctx[desc_start + len("Business Description:\n"):].strip()
+                    # Collect up to 2 complete sentences (no hard char cut mid-sentence)
+                    sentences = []
+                    remaining = desc_text
+                    for _ in range(2):
+                        dot = remaining.find(". ")
+                        if dot == -1:
+                            # No more sentence boundaries — take the rest if short enough
+                            if remaining and len(remaining) < 400:
+                                sentences.append(remaining.strip())
+                            break
+                        sentences.append(remaining[:dot + 1].strip())
+                        remaining = remaining[dot + 2:].strip()
+                    snippet = " ".join(sentences)
+                    if snippet:
+                        biz_line = (
+                            f'<div style="font-size:12px;color:#8B949E;margin:3px 0 8px;'
+                            f'line-height:1.6;font-style:italic;">{snippet}</div>'
+                        )
         except Exception:
             pass
 
-        # ── Primary catalyst: AI cache if analyzed, else best heuristic ──────
-        catalyst_label = "Primary Catalyst"
-        catalyst_color = "#3FB950" if is_hi else "#F85149"
-        catalyst_text  = ""
+        # ── Primary catalyst: AI cache if already analyzed, else show button ──
+        catalyst_color  = "#3FB950" if is_hi else "#F85149"
+        catalyst_text   = ""
         catalyst_impact = ""
+        ai_cache_key    = f"quick_{ticker}_{signal}"
 
-        # Check AI cache first
-        for ck in [f"ai_{ticker}_52W_HIGH", f"ai_{ticker}_52W_LOW"]:
-            cached_ai = st.session_state.get(ck, {})
-            pc = cached_ai.get("primary_catalyst", {})
-            if pc and pc.get("headline"):
-                _h = pc["headline"]
-                catalyst_text  = (_h[:197] + "…") if len(_h) > 200 else _h
-                catalyst_impact = pc.get("impact_pct", "")
-                break
-
-        # Fallback: derive single best catalyst from screener data
-        if not catalyst_text:
-            ret1m  = _safe_float(row.get("ret_1m"))  or 0
-            ret3m  = _safe_float(row.get("ret_3m"))  or 0
-            vs     = vsurge or 0
-            if is_hi:
-                if vs >= 3.0:
-                    catalyst_text = f"Institutional accumulation — {vs:.1f}× volume surge above 20-day avg"
-                elif ret1m >= 15:
-                    catalyst_text = f"Strong momentum — +{ret1m:.1f}% in 1 month, +{ret3m:.1f}% over 3 months"
-                elif ret3m >= 30:
-                    catalyst_text = f"Multi-month breakout — +{ret3m:.1f}% over 3 months with sustained buying"
-                else:
-                    catalyst_text = f"52-week breakout — price hit annual peak with {vs:.1f}× volume confirmation"
-            else:
-                if vs >= 3.0:
-                    catalyst_text = f"Institutional distribution — {vs:.1f}× volume surge driving the sell-off"
-                elif ret1m <= -15:
-                    catalyst_text = f"Sharp selloff — {ret1m:.1f}% in 1 month, {ret3m:.1f}% over 3 months"
-                elif ret3m <= -25:
-                    catalyst_text = f"Extended downtrend — {ret3m:.1f}% over 3 months, hitting annual low"
-                else:
-                    catalyst_text = f"52-week breakdown — price breached annual floor with {vs:.1f}× volume"
+        cached_quick = st.session_state.get(ai_cache_key, {})
+        if cached_quick.get("headline"):
+            catalyst_text   = cached_quick["headline"]
+            catalyst_impact = cached_quick.get("impact_pct", "")
 
         impact_chip = (
             f' <span style="font-size:10px;font-weight:700;background:{"#1a3828" if is_hi else "#3b1219"};'
             f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">{catalyst_impact}</span>'
         ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
 
-        catalyst_block = (
-            f'<div style="margin-top:8px;">'
-            f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-            f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">Primary Catalyst</div>'
-            f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-            f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
-            f'</div>'
-        )
+        if catalyst_text:
+            catalyst_block = (
+                f'<div style="margin-top:8px;">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">Major Catalyst</div>'
+                f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+                f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
+                f'</div>'
+            )
+        else:
+            catalyst_block = ""   # button rendered separately below via st.button
 
-        # Render each card as its own st.markdown call — avoids markdown code-block mis-parse
+        # Render card
         card = (
             f'<div class="sig-card {card_cls}">'
             f'<div style="flex:1">'
@@ -1287,6 +1271,33 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'</div>'
         )
         st.markdown(card, unsafe_allow_html=True)
+
+        # ── On-demand Major Catalyst button (shown only when not yet analyzed) ─
+        if not catalyst_text and _AI_OK:
+            btn_col, _ = st.columns([1, 3])
+            with btn_col:
+                if st.button(
+                    "⚡ Major Catalyst",
+                    key=f"mc_{ticker}_{key}",
+                    help=f"Fetch AI-powered major catalyst for {name}",
+                ):
+                    with st.spinner(f"Analysing {name}…"):
+                        _news = _fetch_quick_news_context(ticker, name)
+                        _yf   = build_yfinance_context(ticker) if _SCREENER_OK else ""
+                        _ret1m = _safe_float(row.get("ret_1m")) or 0
+                        _ret3m = _safe_float(row.get("ret_3m")) or 0
+                        _pe    = _safe_float(row.get("pe_ratio")) or 0
+                        result = _quick_catalyst_groq(
+                            ticker, name, sector or "", signal,
+                            _safe_float(row.get("current_price")) or 0,
+                            _ret1m, _ret3m,
+                            vsurge or 0, _pe,
+                            news_context=_news,
+                            yfinance_context=_yf,
+                        )
+                        if result.get("headline"):
+                            st.session_state[ai_cache_key] = result
+                            st.rerun()
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
@@ -3280,20 +3291,7 @@ def main():
                 state="complete", expanded=False,
             )
 
-        # ── Parallel AI enrichment (post-screen, llama-3.1-8b-instant) ───────
-        _h = results.get("highs", pd.DataFrame())
-        _l = results.get("lows",  pd.DataFrame())
-        _total = len(_h) + len(_l)
-        if _total > 0 and _AI_OK:
-            with st.status(
-                f"🤖 AI pre-analysing {_total} stocks in parallel…",
-                expanded=False,
-            ) as enrich_status:
-                _n = _enrich_results_parallel(_h, _l)
-                enrich_status.update(
-                    label=f"✅ Primary catalysts ready for {_n} stocks",
-                    state="complete",
-                )
+        # Auto AI enrichment removed — analysis is now on-demand per stock (Major Catalyst button)
 
     elif "screen_results" in st.session_state:
         results = st.session_state["screen_results"]
