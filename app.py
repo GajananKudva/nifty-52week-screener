@@ -1607,8 +1607,43 @@ Set is_stale=true if the most recent article you found is older than 7 days from
             max_tokens=300,
             response_format={"type": "json_object"},
         )
-        raw = r2.choices[0].message.content.strip()
-        return json.loads(raw)
+        raw    = r2.choices[0].message.content.strip()
+        result = json.loads(raw)
+
+        # ── Validate headline — reject bad model fallbacks ────────────────────
+        headline = result.get("headline", "")
+        _bad = (
+            not headline
+            or clean_ticker.lower() in headline.lower()        # ticker symbol in headline
+            or ticker.lower() in headline.lower()              # .NS form in headline
+            or "52-week" in headline.lower()                   # describes price action
+            or "52 week" in headline.lower()
+            or headline.lower().endswith("high")
+            or headline.lower().endswith("low")
+        )
+        if _bad:
+            # Build a meaningful heuristic from available data
+            _parts = []
+            if ret3m and abs(ret3m) >= 5:
+                _parts.append(f"{ret3m:+.1f}% over 3 months")
+            elif ret1m and abs(ret1m) >= 3:
+                _parts.append(f"{ret1m:+.1f}% in 1 month")
+            if vsurge and vsurge >= 1.5:
+                _parts.append(f"{vsurge:.1f}× volume surge")
+            if pe and pe > 0:
+                _parts.append(f"P/E {pe:.0f}×")
+            if sector:
+                _parts.append(f"{sector} sector momentum")
+            fallback_headline = (
+                f"{company}: " + " · ".join(_parts)
+                if _parts else f"{company} at {direction}"
+            )
+            result["headline"]      = fallback_headline[:90]
+            result["is_stale"]      = True
+            result["catalyst_date"] = "Not found"
+            result["source"]        = "Heuristic (no recent news found)"
+
+        return result
 
     except Exception:
         return {}
