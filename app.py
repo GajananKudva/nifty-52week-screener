@@ -440,6 +440,18 @@ hr { border-color: #21262D !important; margin: 12px 0 !important; }
 ::-webkit-scrollbar-track { background: #0D1117; }
 ::-webkit-scrollbar-thumb { background: #30363D; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #484F58; }
+
+/* ── Signal card containers (st.container border=True override) ──────────── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: #161B22 !important;
+    border-color: #21262D !important;
+    border-radius: 10px !important;
+    margin-bottom: 10px !important;
+}
+[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {
+    background: transparent !important;
+    padding: 4px 6px !important;
+}
 </style>
 """
 
@@ -1196,36 +1208,39 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         else:
             vol_str = ""
 
-        # ── Business model (2 sentences from yfinance, cached) ─────────────
-        biz_line = ""
+        # ── Business model — yfinance summary, 2 full sentences ─────────────
+        biz_snippet = ""
         try:
             biz_ctx = _fetch_yf_company_context(ticker)
             if biz_ctx:
                 desc_start = biz_ctx.find("Business Description:\n")
                 if desc_start >= 0:
                     desc_text = biz_ctx[desc_start + len("Business Description:\n"):].strip()
-                    # Collect up to 2 complete sentences (no hard char cut mid-sentence)
-                    sentences = []
-                    remaining = desc_text
+                    sentences, remaining = [], desc_text
                     for _ in range(2):
                         dot = remaining.find(". ")
                         if dot == -1:
-                            # No more sentence boundaries — take the rest if short enough
                             if remaining and len(remaining) < 400:
                                 sentences.append(remaining.strip())
                             break
                         sentences.append(remaining[:dot + 1].strip())
                         remaining = remaining[dot + 2:].strip()
-                    snippet = " ".join(sentences)
-                    if snippet:
-                        biz_line = (
-                            f'<div style="font-size:12px;color:#8B949E;margin:3px 0 8px;'
-                            f'line-height:1.6;font-style:italic;">{snippet}</div>'
-                        )
+                    biz_snippet = " ".join(sentences)
+            # Fallback: use yfinance .info longBusinessSummary directly
+            if not biz_snippet:
+                try:
+                    import yfinance as _yf2
+                    _info = _yf2.Ticker(ticker).info
+                    raw = (_info.get("longBusinessSummary") or "").strip()
+                    if raw:
+                        dot = raw.find(". ")
+                        biz_snippet = raw[:dot + 1] if 0 < dot < 300 else raw[:250]
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        # ── Primary catalyst: AI cache if already analyzed, else show button ──
+        # ── Catalyst cache ────────────────────────────────────────────────────
         catalyst_color  = "#3FB950" if is_hi else "#F85149"
         catalyst_text   = ""
         catalyst_impact = ""
@@ -1237,68 +1252,93 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             catalyst_text   = cached_quick["headline"]
             catalyst_impact = cached_quick.get("impact_pct", "")
 
-        impact_chip = (
-            f' <span style="font-size:10px;font-weight:700;background:{"#1a3828" if is_hi else "#3b1219"};'
-            f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">{catalyst_impact}</span>'
-        ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
+        # ── Render card + button inside one bordered container ────────────────
+        left_border = "#00c805" if is_hi else "#ff3b3b"
+        with st.container(border=True):
+            # Thin left-accent bar + two-column layout
+            accent_col, content_col, price_col = st.columns([0.04, 3.5, 1.2])
 
-        if catalyst_text:
-            catalyst_block = (
-                f'<div style="margin-top:8px;">'
-                f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-                f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">Major Catalyst</div>'
-                f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-                f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
-                f'</div>'
-            )
-        else:
-            catalyst_block = ""   # button rendered separately below via st.button
+            with accent_col:
+                st.markdown(
+                    f'<div style="background:{left_border};width:3px;'
+                    f'min-height:90px;border-radius:3px;margin-top:4px;"></div>',
+                    unsafe_allow_html=True,
+                )
 
-        # Render card
-        card = (
-            f'<div class="sig-card {card_cls}">'
-            f'<div style="flex:1">'
-            f'<div class="sc-name">{name}</div>'
-            f'<div class="sc-ticker">{ticker}</div>'
-            f'<div class="sc-sector">{sector}</div>'
-            f'{biz_line}'
-            f'{catalyst_block}'
-            f'</div>'
-            f'<div class="sc-right">'
-            f'<div class="sc-price">{price_str}</div>'
-            f'<div class="{status_cls}">{status}</div>'
-            f'<div class="sc-vol">{vol_str}</div>'
-            f'</div>'
-            f'</div>'
-        )
-        st.markdown(card, unsafe_allow_html=True)
+            with content_col:
+                # Company name + ticker + sector
+                st.markdown(
+                    f'<div style="font-size:15px;font-weight:700;color:#E6EDF3;'
+                    f'margin-bottom:2px;">{name}</div>'
+                    f'<div style="font-size:11px;color:#6E7681;letter-spacing:0.5px;">'
+                    f'{ticker}'
+                    f'{"  ·  " + sector if sector else ""}</div>',
+                    unsafe_allow_html=True,
+                )
+                # Business model (italic, full sentences, no cut)
+                if biz_snippet:
+                    st.markdown(
+                        f'<div style="font-size:12px;color:#8B949E;margin:6px 0 4px;'
+                        f'line-height:1.6;font-style:italic;">{biz_snippet}</div>',
+                        unsafe_allow_html=True,
+                    )
+                # Major Catalyst result (if already fetched)
+                if catalyst_text:
+                    impact_chip = (
+                        f' <span style="font-size:10px;font-weight:700;'
+                        f'background:{"#1a3828" if is_hi else "#3b1219"};'
+                        f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">'
+                        f'{catalyst_impact}</span>'
+                    ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
+                    st.markdown(
+                        f'<div style="margin-top:8px;">'
+                        f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                        f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">'
+                        f'Major Catalyst</div>'
+                        f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+                        f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
-        # ── On-demand Major Catalyst button (shown only when not yet analyzed) ─
-        if not catalyst_text and _AI_OK:
-            btn_col, _ = st.columns([1, 3])
-            with btn_col:
-                if st.button(
-                    "⚡ Major Catalyst",
-                    key=f"mc_{ticker}_{key}",
-                    help=f"Fetch AI-powered major catalyst for {name}",
-                ):
-                    with st.spinner(f"Analysing {name}…"):
-                        _news = _fetch_quick_news_context(ticker, name)
-                        _yf   = build_yfinance_context(ticker) if _SCREENER_OK else ""
-                        _ret1m = _safe_float(row.get("ret_1m")) or 0
-                        _ret3m = _safe_float(row.get("ret_3m")) or 0
-                        _pe    = _safe_float(row.get("pe_ratio")) or 0
-                        result = _quick_catalyst_groq(
-                            ticker, name, sector or "", signal,
-                            _safe_float(row.get("current_price")) or 0,
-                            _ret1m, _ret3m,
-                            vsurge or 0, _pe,
-                            news_context=_news,
-                            yfinance_context=_yf,
-                        )
-                        if result.get("headline"):
-                            st.session_state[ai_cache_key] = result
-                            st.rerun()
+            with price_col:
+                st.markdown(
+                    f'<div style="text-align:right;padding-top:4px;">'
+                    f'<div style="font-size:17px;font-weight:700;color:#E6EDF3;">'
+                    f'{price_str}</div>'
+                    f'<div style="font-size:12px;font-weight:600;color:{left_border};'
+                    f'margin-top:4px;">{status}</div>'
+                    f'<div style="font-size:11px;color:#8B949E;margin-top:3px;">'
+                    f'{vol_str}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # ⚡ Major Catalyst button — inside the card, only before analysis ─
+            if not catalyst_text and _AI_OK:
+                btn_c, _ = st.columns([1, 3])
+                with btn_c:
+                    if st.button(
+                        "⚡ Major Catalyst",
+                        key=f"mc_{ticker}_{key}",
+                        help=f"Get AI-powered major catalyst for {name}",
+                    ):
+                        with st.spinner(f"Analysing {name}…"):
+                            _news  = _fetch_quick_news_context(ticker, name)
+                            _yf_c  = build_yfinance_context(ticker) if _SCREENER_OK else ""
+                            _ret1m = _safe_float(row.get("ret_1m")) or 0
+                            _ret3m = _safe_float(row.get("ret_3m")) or 0
+                            _pe    = _safe_float(row.get("pe_ratio")) or 0
+                            result = _quick_catalyst_groq(
+                                ticker, name, sector or "", signal,
+                                _safe_float(row.get("current_price")) or 0,
+                                _ret1m, _ret3m, vsurge or 0, _pe,
+                                news_context=_news,
+                                yfinance_context=_yf_c,
+                            )
+                            if result.get("headline"):
+                                st.session_state[ai_cache_key] = result
+                                st.rerun()
 
     st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 
