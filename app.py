@@ -1208,7 +1208,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         else:
             vol_str = ""
 
-        # ── Business model — yfinance summary, 2 full sentences ─────────────
+        # ── Business model — 2 full sentences, with data fallback ───────────
         biz_snippet = ""
         try:
             biz_ctx = _fetch_yf_company_context(ticker)
@@ -1226,19 +1226,21 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                         sentences.append(remaining[:dot + 1].strip())
                         remaining = remaining[dot + 2:].strip()
                     biz_snippet = " ".join(sentences)
-            # Fallback: use yfinance .info longBusinessSummary directly
-            if not biz_snippet:
-                try:
-                    import yfinance as _yf2
-                    _info = _yf2.Ticker(ticker).info
-                    raw = (_info.get("longBusinessSummary") or "").strip()
-                    if raw:
-                        dot = raw.find(". ")
-                        biz_snippet = raw[:dot + 1] if 0 < dot < 300 else raw[:250]
-                except Exception:
-                    pass
         except Exception:
             pass
+        # Fallback: build a short description from what we already have in the row
+        if not biz_snippet:
+            _parts = []
+            if sector:
+                _parts.append(f"{sector} sector company listed on NSE")
+            _mc = _safe_float(row.get("market_cap"))
+            if _mc and _mc > 0:
+                _parts.append(f"market cap Rs{_mc/1e7:,.0f} Cr")
+            _pe2 = _safe_float(row.get("pe_ratio"))
+            if _pe2 and _pe2 > 0:
+                _parts.append(f"P/E {_pe2:.1f}×")
+            if _parts:
+                biz_snippet = " · ".join(_parts)
 
         # ── Catalyst cache ────────────────────────────────────────────────────
         catalyst_color  = "#3FB950" if is_hi else "#F85149"
@@ -1252,76 +1254,66 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             catalyst_text   = cached_quick["headline"]
             catalyst_impact = cached_quick.get("impact_pct", "")
 
-        # ── Render card + button inside one bordered container ────────────────
+        # ── Card: 80% details left, 20% button right ──────────────────────────
         left_border = "#00c805" if is_hi else "#ff3b3b"
+
+        impact_chip = (
+            f'<span style="font-size:10px;font-weight:700;margin-left:6px;'
+            f'background:{"#1a3828" if is_hi else "#3b1219"};'
+            f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">'
+            f'{catalyst_impact}</span>'
+        ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
+
+        catalyst_html = (
+            f'<div style="margin-top:8px;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+            f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">Major Catalyst</div>'
+            f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+            f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
+            f'</div>'
+        ) if catalyst_text else ""
+
         with st.container(border=True):
-            # Thin left-accent bar + two-column layout
-            accent_col, content_col, price_col = st.columns([0.04, 3.5, 1.2])
+            detail_col, btn_col = st.columns([4, 1])
 
-            with accent_col:
+            with detail_col:
                 st.markdown(
-                    f'<div style="background:{left_border};width:3px;'
-                    f'min-height:90px;border-radius:3px;margin-top:4px;"></div>',
+                    f'<div style="display:flex;gap:14px;padding:4px 0;">'
+                    # coloured left accent bar
+                    f'<div style="background:{left_border};width:3px;border-radius:3px;'
+                    f'min-height:80px;flex-shrink:0;"></div>'
+                    f'<div style="flex:1;">'
+                    # top row: name + price right-aligned
+                    f'<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
+                    f'<div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#E6EDF3;">{name}</div>'
+                    f'<div style="font-size:11px;color:#6E7681;margin-top:2px;">'
+                    f'{ticker}{"  ·  " + sector if sector else ""}</div>'
+                    f'</div>'
+                    f'<div style="text-align:right;padding-left:12px;flex-shrink:0;">'
+                    f'<div style="font-size:17px;font-weight:700;color:#E6EDF3;">{price_str}</div>'
+                    f'<div style="font-size:12px;font-weight:600;color:{left_border};margin-top:3px;">{status}</div>'
+                    f'<div style="font-size:11px;color:#8B949E;margin-top:2px;">{vol_str}</div>'
+                    f'</div>'
+                    f'</div>'
+                    # business model
+                    + (f'<div style="font-size:12px;color:#8B949E;margin-top:6px;'
+                       f'line-height:1.6;font-style:italic;">{biz_snippet}</div>'
+                       if biz_snippet else "")
+                    # catalyst
+                    + catalyst_html
+                    + f'</div></div>',
                     unsafe_allow_html=True,
                 )
 
-            with content_col:
-                # Company name + ticker + sector
-                st.markdown(
-                    f'<div style="font-size:15px;font-weight:700;color:#E6EDF3;'
-                    f'margin-bottom:2px;">{name}</div>'
-                    f'<div style="font-size:11px;color:#6E7681;letter-spacing:0.5px;">'
-                    f'{ticker}'
-                    f'{"  ·  " + sector if sector else ""}</div>',
-                    unsafe_allow_html=True,
-                )
-                # Business model (italic, full sentences, no cut)
-                if biz_snippet:
-                    st.markdown(
-                        f'<div style="font-size:12px;color:#8B949E;margin:6px 0 4px;'
-                        f'line-height:1.6;font-style:italic;">{biz_snippet}</div>',
-                        unsafe_allow_html=True,
-                    )
-                # Major Catalyst result (if already fetched)
-                if catalyst_text:
-                    impact_chip = (
-                        f' <span style="font-size:10px;font-weight:700;'
-                        f'background:{"#1a3828" if is_hi else "#3b1219"};'
-                        f'color:{catalyst_color};border-radius:3px;padding:1px 6px;">'
-                        f'{catalyst_impact}</span>'
-                    ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
-                    st.markdown(
-                        f'<div style="margin-top:8px;">'
-                        f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-                        f'text-transform:uppercase;color:#6E7681;margin-bottom:4px;">'
-                        f'Major Catalyst</div>'
-                        f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-                        f'line-height:1.5;">{catalyst_text}{impact_chip}</div>'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
-
-            with price_col:
-                st.markdown(
-                    f'<div style="text-align:right;padding-top:4px;">'
-                    f'<div style="font-size:17px;font-weight:700;color:#E6EDF3;">'
-                    f'{price_str}</div>'
-                    f'<div style="font-size:12px;font-weight:600;color:{left_border};'
-                    f'margin-top:4px;">{status}</div>'
-                    f'<div style="font-size:11px;color:#8B949E;margin-top:3px;">'
-                    f'{vol_str}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-            # ⚡ Major Catalyst button — inside the card, only before analysis ─
-            if not catalyst_text and _AI_OK:
-                btn_c, _ = st.columns([1, 3])
-                with btn_c:
+            with btn_col:
+                st.markdown('<div style="height:22px;"></div>', unsafe_allow_html=True)
+                if not catalyst_text and _AI_OK:
                     if st.button(
-                        "⚡ Major Catalyst",
+                        "⚡ Major\nCatalyst",
                         key=f"mc_{ticker}_{key}",
                         help=f"Get AI-powered major catalyst for {name}",
+                        width="stretch",
                     ):
                         with st.spinner(f"Analysing {name}…"):
                             _news  = _fetch_quick_news_context(ticker, name)
