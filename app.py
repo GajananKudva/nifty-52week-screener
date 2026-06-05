@@ -450,7 +450,19 @@ hr { border-color: #21262D !important; margin: 12px 0 !important; }
 }
 [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stVerticalBlock"] {
     background: transparent !important;
-    padding: 4px 6px !important;
+    padding: 2px 4px !important;
+}
+/* Button fills remaining height in right column */
+[data-testid="stVerticalBlockBorderWrapper"] .stButton {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+[data-testid="stVerticalBlockBorderWrapper"] .stButton > button {
+    flex: 1 !important;
+    min-height: 52px !important;
+    height: 100% !important;
+    width: 100% !important;
 }
 </style>
 """
@@ -1274,43 +1286,40 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         ) if catalyst_text else ""
 
         with st.container(border=True):
-            detail_col, btn_col = st.columns([4, 1])
+            left_col, right_col = st.columns([3, 1])
 
-            with detail_col:
+            # ── Left: accent bar + name + biz + catalyst ──────────────────────
+            with left_col:
                 st.markdown(
-                    f'<div style="display:flex;gap:14px;padding:4px 0;">'
-                    # coloured left accent bar
+                    f'<div style="display:flex;gap:14px;padding:6px 0 4px;">'
                     f'<div style="background:{left_border};width:3px;border-radius:3px;'
-                    f'min-height:80px;flex-shrink:0;"></div>'
+                    f'min-height:70px;flex-shrink:0;"></div>'
                     f'<div style="flex:1;">'
-                    # top row: name + price right-aligned
-                    f'<div style="display:flex;justify-content:space-between;align-items:flex-start;">'
-                    f'<div>'
                     f'<div style="font-size:15px;font-weight:700;color:#E6EDF3;">{name}</div>'
                     f'<div style="font-size:11px;color:#6E7681;margin-top:2px;">'
                     f'{ticker}{"  ·  " + sector if sector else ""}</div>'
-                    f'</div>'
-                    f'<div style="text-align:right;padding-left:12px;flex-shrink:0;">'
-                    f'<div style="font-size:17px;font-weight:700;color:#E6EDF3;">{price_str}</div>'
-                    f'<div style="font-size:12px;font-weight:600;color:{left_border};margin-top:3px;">{status}</div>'
-                    f'<div style="font-size:11px;color:#8B949E;margin-top:2px;">{vol_str}</div>'
-                    f'</div>'
-                    f'</div>'
-                    # business model
-                    + (f'<div style="font-size:12px;color:#8B949E;margin-top:6px;'
+                    + (f'<div style="font-size:12px;color:#8B949E;margin-top:7px;'
                        f'line-height:1.6;font-style:italic;">{biz_snippet}</div>'
                        if biz_snippet else "")
-                    # catalyst
                     + catalyst_html
                     + f'</div></div>',
                     unsafe_allow_html=True,
                 )
 
-            with btn_col:
-                st.markdown('<div style="height:22px;"></div>', unsafe_allow_html=True)
+            # ── Right: price + status + vol, then button fills rest ───────────
+            with right_col:
+                st.markdown(
+                    f'<div style="text-align:right;padding:6px 0 10px;">'
+                    f'<div style="font-size:17px;font-weight:700;color:#E6EDF3;">{price_str}</div>'
+                    f'<div style="font-size:12px;font-weight:600;color:{left_border};'
+                    f'margin-top:4px;">{status}</div>'
+                    f'<div style="font-size:11px;color:#8B949E;margin-top:3px;">{vol_str}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
                 if not catalyst_text and _AI_OK:
                     if st.button(
-                        "⚡ Major\nCatalyst",
+                        "⚡ Major Catalyst",
                         key=f"mc_{ticker}_{key}",
                         help=f"Get AI-powered major catalyst for {name}",
                         width="stretch",
