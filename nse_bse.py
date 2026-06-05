@@ -287,6 +287,123 @@ def get_corporate_announcements(symbol: str) -> Optional[list]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# 6. Stock-specific FII/DII flows (Rs Cr, derived from shareholding x market cap)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def get_fiidii_stock_flows(symbol: str) -> Optional[dict]:
+    """
+    Estimate stock-level FII and DII holding changes in Rs Cr.
+
+    Method:
+      1. Fetch market cap from NSE equity quote API.
+      2. Use latest two quarters of shareholding pattern data.
+      3. Compute DeltaHolding % x market cap -> approximate Rs Cr change.
+
+    Returns dict with keys: market_cap_cr, latest_quarter, prev_quarter,
+      fii_pct_now, fii_pct_prev, fii_chg_pct, fii_chg_cr,
+      dii_pct_now, dii_pct_prev, dii_chg_pct, dii_chg_cr,
+      interpretation.
+    Returns None on failure or insufficient data.
+    """
+    sym = _clean(symbol)
+    try:
+        s = _session()
+        r = s.get(
+            f"https://www.nseindia.com/api/quote-equity?symbol={sym}",
+            headers=_NSE_HDRS, timeout=_TIMEOUT,
+        )
+        r.raise_for_status()
+        info     = r.json()
+        price_info = info.get("priceInfo", {})
+        mkt_cap_raw = (
+            (info.get("industryInfo") or {}).get("marketCap")
+            or price_info.get("marketCap")
+        )
+        # Try metadata block
+        if mkt_cap_raw is None:
+            meta_block = info.get("metadata") or info.get("securityInfo") or {}
+            mkt_cap_raw = meta_block.get("marketCap") or meta_block.get("mktCap")
+
+        market_cap_cr: Optional[float] = None
+        if mkt_cap_raw is not None:
+            try:
+                raw_val = float(str(mkt_cap_raw).replace(",", ""))
+                # NSE often returns market cap in Rs (not Cr); convert
+                market_cap_cr = raw_val / 1e7 if raw_val > 1e9 else raw_val
+            except Exception:
+                pass
+
+        # Fallback: estimate from last price x shares outstanding
+        if market_cap_cr is None:
+            last_price = float(str(price_info.get("lastPrice") or 0).replace(",", "") or 0)
+            shares_raw = (info.get("securityInfo") or {}).get("issuedSize") or 0
+            try:
+                shares = float(str(shares_raw).replace(",", ""))
+                if last_price > 0 and shares > 0:
+                    market_cap_cr = (last_price * shares) / 1e7
+            except Exception:
+                pass
+
+        if market_cap_cr is None or market_cap_cr <= 0:
+            return None
+
+        # Get shareholding pattern (latest 2 quarters)
+        holding = get_promoter_shareholding(symbol)
+        if not holding or len(holding) < 2:
+            return None
+
+        latest = holding[0]
+        prev   = holding[1]
+
+        fii_now  = latest.get("fii_pct")
+        fii_prev = prev.get("fii_pct")
+        dii_now  = latest.get("dii_pct")
+        dii_prev = prev.get("dii_pct")
+
+        if fii_now is None or fii_prev is None:
+            return None
+
+        fii_chg_pct = round(float(fii_now) - float(fii_prev), 2)
+        dii_chg_pct = round(float(dii_now or 0) - float(dii_prev or 0), 2)
+
+        fii_chg_cr = round(fii_chg_pct / 100 * market_cap_cr, 0)
+        dii_chg_cr = round(dii_chg_pct / 100 * market_cap_cr, 0)
+
+        def _interp(chg_cr: float, who: str) -> str:
+            if chg_cr > 500:
+                return f"{who} added heavily (+Rs{chg_cr:,.0f}Cr) -- strong conviction buying"
+            elif chg_cr > 100:
+                return f"{who} increased stake (+Rs{chg_cr:,.0f}Cr) -- moderate accumulation"
+            elif chg_cr > 0:
+                return f"{who} marginally increased (+Rs{chg_cr:,.0f}Cr)"
+            elif chg_cr < -500:
+                return f"{who} sold heavily (-Rs{abs(chg_cr):,.0f}Cr) -- significant distribution"
+            elif chg_cr < -100:
+                return f"{who} reduced stake (-Rs{abs(chg_cr):,.0f}Cr) -- moderate selling"
+            elif chg_cr < 0:
+                return f"{who} marginally reduced (-Rs{abs(chg_cr):,.0f}Cr)"
+            return f"{who} holding unchanged"
+
+        return {
+            "market_cap_cr":  round(market_cap_cr, 0),
+            "latest_quarter": latest.get("quarter", ""),
+            "prev_quarter":   prev.get("quarter", ""),
+            "fii_pct_now":    fii_now,
+            "fii_pct_prev":   fii_prev,
+            "fii_chg_pct":    fii_chg_pct,
+            "fii_chg_cr":     fii_chg_cr,
+            "dii_pct_now":    dii_now,
+            "dii_pct_prev":   dii_prev,
+            "dii_chg_pct":    dii_chg_pct,
+            "dii_chg_cr":     dii_chg_cr,
+            "fii_interpretation": _interp(fii_chg_cr, "FII/FPI"),
+            "dii_interpretation": _interp(dii_chg_cr, "DII/MF"),
+        }
+    except Exception:
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Context builder
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -300,38 +417,38 @@ def build_nse_bse_context(symbol: str) -> str:
     ]
     any_data = False
 
-    # ── Delivery %
+    # -- Delivery %
     delivery = get_delivery_data(symbol)
     if delivery and delivery.get("delivery_pct") is not None:
         any_data = True
         dpct = delivery["delivery_pct"]
         if dpct >= 65:
-            signal = "HIGH — strong institutional/conviction buying"
+            signal = "HIGH -- strong institutional/conviction buying"
         elif dpct >= 45:
-            signal = "MODERATE — mixed retail and institutional"
+            signal = "MODERATE -- mixed retail and institutional"
         else:
-            signal = "LOW — predominantly intraday/speculative"
+            signal = "LOW -- predominantly intraday/speculative"
         lines.append("\n[DELIVERY DATA]")
-        lines.append(f"  Delivery %   : {dpct:.1f}%  →  {signal}")
+        lines.append(f"  Delivery %   : {dpct:.1f}%  ->  {signal}")
 
-    # ── F&O buildup
+    # -- F&O buildup
     fno = get_fno_buildup(symbol)
     if fno:
         if fno.get("available"):
             any_data = True
-            lines.append("\n[F&O BUILDUP — Near Month Futures]")
+            lines.append("\n[F&O BUILDUP -- Near Month Futures]")
             lines.append(f"  Signal       : {fno['buildup']}")
             lines.append(f"  Reading      : {fno['interpretation']}")
             lines.append(f"  Price chg    : {fno['price_change']:+.2f}%  |  OI chg: {fno['oi_change']:+.2f}%")
         else:
             lines.append(f"\n[F&O]  {fno.get('reason', 'Not in F&O segment')}")
 
-    # ── Bulk & block deals
+    # -- Bulk & block deals
     deals = get_bulk_block_deals(symbol)
     bulk  = deals.get("bulk", [])
     block = deals.get("block", [])
     any_data = any_data or bool(bulk or block)
-    lines.append("\n[BULK & BLOCK DEALS — Today]")
+    lines.append("\n[BULK & BLOCK DEALS -- Today]")
     if bulk or block:
         for d in (bulk + block)[:8]:
             tag    = "BULK " if d in bulk else "BLOCK"
@@ -339,15 +456,15 @@ def build_nse_bse_context(symbol: str) -> str:
             side   = str(d.get("buySell") or d.get("buy_sell") or "?")
             qty    = d.get("quantity") or d.get("Quantity") or "?"
             price  = d.get("tradePrice") or d.get("Trade Price") or "?"
-            lines.append(f"  {tag} | {client:<30} | {side:<5} | Qty: {_fmt_num(qty)} | ₹{price}")
+            lines.append(f"  {tag} | {client:<30} | {side:<5} | Qty: {_fmt_num(qty)} | Rs{price}")
     else:
         lines.append("  No bulk/block deals today")
 
-    # ── Promoter shareholding
+    # -- Promoter shareholding
     holding = get_promoter_shareholding(symbol)
     if holding:
         any_data = True
-        lines.append("\n[SHAREHOLDING PATTERN — Quarterly Trend]")
+        lines.append("\n[SHAREHOLDING PATTERN -- Quarterly Trend]")
         lines.append(f"  {'Quarter':<14} {'Promoter':>10} {'FII':>8} {'DII':>8} {'Retail':>8}  Trend")
         prev_promo = None
         for q in holding:
@@ -359,14 +476,34 @@ def build_nse_bse_context(symbol: str) -> str:
             if prev_promo is not None and q.get("promoter_pct") is not None:
                 try:
                     diff  = float(q["promoter_pct"]) - float(prev_promo)
-                    arrow = "↑" if diff > 0 else "↓"
+                    arrow = "up" if diff > 0 else "down"
                     trend = f"  Promoter {arrow}{abs(diff):.2f}% QoQ"
                 except Exception:
                     pass
             lines.append(f"  {str(q['quarter']):<14} {promo:>10} {fii:>8} {dii:>8} {retail:>8}{trend}")
             prev_promo = q.get("promoter_pct")
 
-    # ── Corporate announcements
+    # -- Stock-specific FII/DII flows in Rs Cr
+    flows = get_fiidii_stock_flows(symbol)
+    if flows:
+        any_data = True
+        lines.append("\n[FII / DII STOCK-LEVEL FLOWS -- Quarterly Delta Holding]")
+        lines.append(f"  Market Cap    : Rs{flows['market_cap_cr']:,.0f} Cr")
+        lines.append(f"  Period        : {flows['prev_quarter']}  ->  {flows['latest_quarter']}")
+        lines.append(
+            f"  FII/FPI       : {flows['fii_pct_prev']:.2f}%  ->  {flows['fii_pct_now']:.2f}%"
+            f"  (Delta {flows['fii_chg_pct']:+.2f}%  approx  Rs{flows['fii_chg_cr']:+,.0f} Cr)"
+        )
+        lines.append(f"  Reading       : {flows['fii_interpretation']}")
+        if flows.get("dii_pct_now") is not None:
+            lines.append(
+                f"  DII/MF        : {flows['dii_pct_prev']:.2f}%  ->  {flows['dii_pct_now']:.2f}%"
+                f"  (Delta {flows['dii_chg_pct']:+.2f}%  approx  Rs{flows['dii_chg_cr']:+,.0f} Cr)"
+            )
+            lines.append(f"  Reading       : {flows['dii_interpretation']}")
+        lines.append("  Note: Rs Cr figures are estimates (DeltaHolding% x Market Cap). Quarterly, not daily.")
+
+    # -- Corporate announcements
     announcements = get_corporate_announcements(symbol)
     if announcements:
         any_data = True
@@ -402,8 +539,8 @@ def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
       symbol, ticker, company_name, sector,
       last_price, year_high, year_low,
       volume, pct_change,
-      near_wkh  (% below 52W high — 0 = at high),
-      near_wkl  (% above 52W low  — 0 = at low)
+      near_wkh  (% below 52W high -- 0 = at high),
+      near_wkl  (% above 52W low  -- 0 = at low)
 
     Returns empty list on failure.
     """
@@ -446,21 +583,35 @@ def get_nse_index_live(index: str = "NIFTY 500") -> list[dict]:
         except (TypeError, ValueError):
             near_wkl = None
 
+        # Today's intraday high/low — NSE returns these as dayHigh/dayLow
+        # Fall back to lastPrice if not present (e.g. pre-market or data gap)
+        raw_day_high = (stock.get("dayHigh") or stock.get("high")
+                        or stock.get("intradayHighPrice") or stock.get("lastPrice"))
+        raw_day_low  = (stock.get("dayLow")  or stock.get("low")
+                        or stock.get("intradayLowPrice")  or stock.get("lastPrice"))
+        try:
+            day_high = float(str(raw_day_high).replace(",", "")) if raw_day_high else None
+        except (TypeError, ValueError):
+            day_high = None
+        try:
+            day_low = float(str(raw_day_low).replace(",", "")) if raw_day_low else None
+        except (TypeError, ValueError):
+            day_low = None
+
         result.append({
             "symbol":       sym,
             "ticker":       f"{sym}.NS",
             "company_name": (meta.get("companyName") or sym),
             "sector":       (meta.get("industry") or ""),
-            "last_price":   stock.get("lastPrice"),
+            "last_price":   stock.get("lastPrice"),   # LTP — for display only
+            "day_high":     day_high,                 # today's session high — for signal detection
+            "day_low":      day_low,                  # today's session low  — for signal detection
             "year_high":    stock.get("yearHigh"),
             "year_low":     stock.get("yearLow"),
             "volume":       stock.get("totalTradedVolume"),
             "pct_change":   stock.get("pChange"),
-            "near_wkh":     near_wkh,
-            "near_wkl":     near_wkl,
+            "near_wkh":     near_wkh,   # NSE pre-computed (LTP-based) — overridden in engine
+            "near_wkl":     near_wkl,   # NSE pre-computed (LTP-based) — overridden in engine
         })
 
     return result
-
-
-# ───────────�
