@@ -3840,7 +3840,21 @@ def main():
             if mask.any():
                 row = highs_df[mask].iloc[0].to_dict()
                 st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_hi, row, p)
+                # Only fire the expensive AI deep-dive when explicitly requested
+                _cached_key = f"ai_{selected_hi}_52W_HIGH"
+                _already_run = _cached_key in st.session_state
+                if _already_run:
+                    _render_spotlight(selected_hi, row, p)
+                else:
+                    if st.button(
+                        "🔍 Run Deep Analysis",
+                        key=f"deep_hi_{selected_hi}",
+                        help="Runs the full AI analyst report (1 API call)",
+                        type="primary",
+                    ):
+                        _render_spotlight(selected_hi, row, p)
+                    else:
+                        st.info("Select a stock above, then click **Run Deep Analysis** to generate the AI report.")
 
     with t_lo:
         selected_lo = _render_signals_table(lows_df, key="lo")
@@ -3849,7 +3863,20 @@ def main():
             if mask.any():
                 row = lows_df[mask].iloc[0].to_dict()
                 st.markdown("<hr/>", unsafe_allow_html=True)
-                _render_spotlight(selected_lo, row, p)
+                _cached_key = f"ai_{selected_lo}_52W_LOW"
+                _already_run = _cached_key in st.session_state
+                if _already_run:
+                    _render_spotlight(selected_lo, row, p)
+                else:
+                    if st.button(
+                        "🔍 Run Deep Analysis",
+                        key=f"deep_lo_{selected_lo}",
+                        help="Runs the full AI analyst report (1 API call)",
+                        type="primary",
+                    ):
+                        _render_spotlight(selected_lo, row, p)
+                    else:
+                        st.info("Select a stock above, then click **Run Deep Analysis** to generate the AI report.")
 
     with t_err:
         if not errors:
