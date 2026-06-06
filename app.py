@@ -1899,7 +1899,8 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
       "detail": "2-3 sentences with Rs crore amounts, %, dates. Why does this move the stock?",
       "impact_pct": "Estimated % of move attributable to this catalyst (e.g. '+8%' or '-12%')",
       "date": "Month DD, YYYY",
-      "source": "Source name"
+      "source": "Source name",
+      "url": "Direct article URL if available from context, else empty string"
     }}
   ],
   "watch_next": [
@@ -3448,10 +3449,18 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             cat_date   = cat.get("date", "")
             cat_source = cat.get("source", "")
             cat_impact = cat.get("impact_pct", "")
+            cat_url    = (cat.get("url") or "").strip()
+
+            # Fallback: Google News search for the headline
+            import urllib.parse as _up
+            if not cat_url:
+                _q = _up.quote_plus(f"{headline} {name}")
+                cat_url = f"https://www.google.com/search?q={_q}&tbm=nws"
 
             _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
             _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
             _cbdr  = {"positive": "#238636", "negative": "#8B1A1A", "neutral": "#30363D"}.get(cat_type, "#30363D")
+            _chover = {"positive": "#0f3020", "negative": "#331018", "neutral": "#1c2128"}.get(cat_type, "#1c2128")
             _cmeta = f"{cat_date}  ·  {cat_source}" if cat_date or cat_source else ""
             _impact_chip = (
                 f'<span style="font-size:11px;font-weight:700;'
@@ -3461,17 +3470,25 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             ) if cat_impact and cat_impact != "N/A" else ""
 
             st.markdown(
+                f'<a href="{cat_url}" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">'
                 f'<div style="background:{_cbg};border:1px solid {_cbdr};'
-                f'border-radius:8px;padding:14px 18px;margin-bottom:10px;">'
+                f'border-radius:8px;padding:14px 18px;margin-bottom:10px;'
+                f'cursor:pointer;transition:background 0.15s;"'
+                f' onmouseover="this.style.background=\'{_chover}\'"'
+                f' onmouseout="this.style.background=\'{_cbg}\'">'
                 f'<div style="display:flex;align-items:flex-start;gap:10px;">'
                 f'<span style="font-size:18px;line-height:1.3">{_icon}</span>'
                 f'<div style="flex:1">'
                 f'<div style="font-size:14px;font-weight:600;color:#E6EDF3;'
                 f'line-height:1.4;margin-bottom:6px;">{headline}{_impact_chip}</div>'
                 f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{detail}</div>'
-                + (f'<div style="font-size:11px;color:#6E7681;margin-top:8px;">{_cmeta}</div>'
-                   if _cmeta else "")
-                + f'</div></div></div>',
+                + (f'<div style="font-size:11px;color:#6E7681;margin-top:8px;">'
+                   f'{_cmeta}'
+                   f'<span style="margin-left:8px;color:#388bfd;font-size:10px;">↗ Read article</span>'
+                   f'</div>'
+                   if _cmeta else
+                   f'<div style="font-size:11px;color:#388bfd;margin-top:8px;">↗ Read article</div>')
+                + f'</div></div></div></a>',
                 unsafe_allow_html=True,
             )
 
