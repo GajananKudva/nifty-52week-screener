@@ -1956,12 +1956,33 @@ def _parse_rss_feed(url: str, company: str, ticker: str,
     Parse an RSS feed and return articles mentioning the company/ticker.
     Filters by company name or ticker symbol appearing in title or summary.
     """
-    clean_ticker = ticker.replace(".NS", "").replace(".BO", "").lower()
-    company_words = [w.lower() for w in company.split() if len(w) > 3]
+    # Generic words that appear in virtually every Indian financial headline —
+    # using them as a match criterion produces false positives for any stock.
+    _STOPWORDS = {
+        "india", "indian", "market", "stock", "share", "equity", "fund",
+        "limited", "ltd", "corp", "company", "group", "finance", "bank",
+        "financial", "nifty", "sensex", "bse", "nse", "sebi",
+    }
+
+    clean_ticker = ticker.replace(".NS", "").replace(".BO", "").replace("-", "").lower()
+
+    # Keep words that are ≥4 chars AND not generic stopwords.
+    # Also keep the raw ticker stem as a match token.
+    company_words = [
+        w.lower() for w in company.split()
+        if len(w) >= 4 and w.lower() not in _STOPWORDS
+    ]
+    # If all words were filtered (e.g. "NAM India"), fall back to the ticker stem.
+    if not company_words:
+        company_words = [clean_ticker] if len(clean_ticker) >= 3 else []
 
     def _mentions(text: str) -> bool:
         t = text.lower()
-        return clean_ticker in t or any(w in t for w in company_words[:3])
+        # Ticker stem must appear, OR a non-generic company word must appear in the TITLE.
+        return clean_ticker in t or any(w in t for w in company_words)
+
+    from datetime import timezone as _tz, timedelta as _td
+    _cutoff = datetime.now(_tz.utc) - _td(days=90)   # ignore articles older than 90 days
 
     results = []
     try:
@@ -1972,18 +1993,26 @@ def _parse_rss_feed(url: str, company: str, ticker: str,
             if not _mentions(title) and not _mentions(summary):
                 continue
             pub = ""
+            pub_dt_raw = entry.get("published", "")
+            article_dt = None
             try:
-                dt  = parsedate_to_datetime(entry.get("published", ""))
-                pub = dt.strftime("%d %b %Y, %I:%M %p")
+                article_dt = parsedate_to_datetime(pub_dt_raw)
+                # Make timezone-aware if naive
+                if article_dt.tzinfo is None:
+                    article_dt = article_dt.replace(tzinfo=_tz.utc)
+                # Skip stale articles
+                if article_dt < _cutoff:
+                    continue
+                pub = article_dt.strftime("%d %b %Y, %I:%M %p")
             except Exception:
-                pub = entry.get("published", "")[:16]
+                pub = pub_dt_raw[:16]
             results.append({
-                "title":     title,
-                "link":      entry.get("link", "#"),
-                "source":    source_name,
-                "published": pub,
-                "published_dt": entry.get("published", ""),
-                "summary":   summary[:220] + "…" if len(summary) > 220 else summary,
+                "title":        title,
+                "link":         entry.get("link", "#"),
+                "source":       source_name,
+                "published":    pub,
+                "published_dt": pub_dt_raw,
+                "summary":      summary[:220] + "…" if len(summary) > 220 else summary,
             })
             if len(results) >= max_items:
                 break
@@ -2038,13 +2067,21 @@ def _fetch_newsapi(company: str, ticker: str, api_key: str) -> list[dict]:
     """
     if not api_key:
         return []
-    clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
+    clean_ticker = ticker.replace(".NS", "").replace(".BO", "").replace("-", "")
+    # Build a precise query: exact company name OR ticker. For short/generic
+    # names (e.g. "NAM India"), also try the ticker stem alone so we don't
+    # get swamped by every article mentioning "India".
+    q_parts = [f'"{company}"']
+    if clean_ticker.lower() not in company.lower():
+        q_parts.append(f'"{clean_ticker}"')
+    newsapi_query = " OR ".join(q_parts)
+
     try:
         import requests as _req
         resp = _req.get(
             "https://newsapi.org/v2/everything",
             params={
-                "q":        f'"{company}" OR "{clean_ticker}"',
+                "q":        newsapi_query,
                 "apiKey":   api_key,
                 "language": "en",
                 "sortBy":   "publishedAt",
