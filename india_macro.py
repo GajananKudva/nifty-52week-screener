@@ -99,7 +99,9 @@ _RBI_FALLBACK = {
     "msf_rate":      6.50,
     "crr":           4.00,
     "slr":           18.00,
-    "last_updated":  "April 2025",
+    # last_updated is set dynamically so it never shows a hardcoded stale date.
+    # Rates above are last-known values — updated when RBI DBIE scrape succeeds.
+    "last_updated":  f"fallback as of {datetime.now().strftime('%b %Y')}",
     "stance":        "Neutral",
 }
 

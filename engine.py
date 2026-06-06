@@ -249,7 +249,12 @@ class DataEngine:
         Uses yf.download() in chunks of 100 — single HTTP call per chunk instead of
         one call per ticker. 500 stocks: ~4 chunks × ~5s = ~20s total vs ~8 minutes serial.
         """
-        tickers = [t.strip().upper() for t in self.config.tickers if t.strip()]
+        # Strip blanks and filter placeholder/dummy tickers (e.g. DUMMYVEDL1.NS
+        # created by NSE for Vedanta demerger entities — no real price data exists).
+        tickers = [
+            t.strip().upper() for t in self.config.tickers
+            if t.strip() and not t.strip().upper().startswith("DUMMY")
+        ]
         logger.info(f"Starting batch universe screen | {len(tickers)} tickers")
 
         # ── Step 1: Batch download history for all tickers ────────────────────

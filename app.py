@@ -605,121 +605,84 @@ _NIFTY_50: list[str] = [
 # 4.  MOCK DATA  (fallback when API rate-limited or engine unavailable)
 # ══════════════════════════════════════════════════════════════════════════════
 def _mock_index_data() -> dict:
+    """Live fallback via yfinance — no hardcoded prices."""
+    try:
+        import yfinance as yf
+        _map = {
+            "NIFTY 50":   "^NSEI",
+            "SENSEX":     "^BSESN",
+            "NIFTY BANK": "^NSEBANK",
+            "INDIA VIX":  "^INDIAVIX",
+        }
+        result = {}
+        for label, sym in _map.items():
+            try:
+                fi = yf.Ticker(sym).fast_info
+                price = getattr(fi, "last_price", None)
+                prev  = getattr(fi, "previous_close", None)
+                if price:
+                    chg = ((price - prev) / prev * 100) if prev else 0.0
+                    pts = (price - prev) if prev else 0.0
+                    result[label] = {"price": price, "chg": round(chg, 2), "pts": round(pts, 2)}
+            except Exception:
+                pass
+        if result:
+            return result
+    except Exception:
+        pass
+    # Hard floor — only reached if yfinance import itself fails
     return {
-        "NIFTY 50":   {"price": 22_450.55, "chg": +0.45, "pts": +100.55},
-        "SENSEX":     {"price": 73_821.30, "chg": +0.32, "pts": +236.50},
-        "NIFTY BANK": {"price": 48_112.75, "chg": -0.18, "pts":  -87.25},
-        "INDIA VIX":  {"price":    14.22,  "chg": -1.10, "pts":   -0.16},
+        "NIFTY 50":   {"price": 0, "chg": 0, "pts": 0},
+        "SENSEX":     {"price": 0, "chg": 0, "pts": 0},
+        "NIFTY BANK": {"price": 0, "chg": 0, "pts": 0},
+        "INDIA VIX":  {"price": 0, "chg": 0, "pts": 0},
     }
 
 
 def _mock_tape_data() -> list[dict]:
-    return [
-        {"name": "NIFTY 50",    "price": 22450.55, "chg": +0.45},
-        {"name": "SENSEX",      "price": 73821.30, "chg": +0.32},
-        {"name": "RELIANCE",    "price": 2941.80,  "chg": +1.20},
-        {"name": "TCS",         "price": 3812.55,  "chg": -0.38},
-        {"name": "HDFCBANK",    "price": 1721.45,  "chg": +0.55},
-        {"name": "INFOSYS",     "price": 1542.90,  "chg": -0.22},
-        {"name": "ICICIBANK",   "price": 1198.70,  "chg": +0.88},
-        {"name": "AIRTEL",      "price": 1650.30,  "chg": +1.42},
-        {"name": "TATA MOTORS", "price":  812.45,  "chg": -1.15},
-        {"name": "WIPRO",       "price":  462.80,  "chg": +0.30},
-        {"name": "BAJAJ FIN",   "price": 7120.50,  "chg": +0.68},
-        {"name": "MARUTI",      "price": 12310.00, "chg": +0.12},
+    """Live fallback via yfinance — no hardcoded prices."""
+    _tickers = [
+        ("^NSEI",       "NIFTY 50"),
+        ("^BSESN",      "SENSEX"),
+        ("RELIANCE.NS", "RELIANCE"),
+        ("TCS.NS",      "TCS"),
+        ("HDFCBANK.NS", "HDFCBANK"),
+        ("INFY.NS",     "INFOSYS"),
+        ("ICICIBANK.NS","ICICIBANK"),
+        ("BHARTIARTL.NS","AIRTEL"),
+        ("TATAMOTORS.NS", "TATA MOTORS"),
+        ("WIPRO.NS",    "WIPRO"),
+        ("BAJFINANCE.NS","BAJAJ FIN"),
+        ("MARUTI.NS",   "MARUTI"),
     ]
+    result = []
+    try:
+        import yfinance as yf
+        for sym, label in _tickers:
+            try:
+                fi    = yf.Ticker(sym).fast_info
+                price = getattr(fi, "last_price", None)
+                prev  = getattr(fi, "previous_close", None)
+                if price:
+                    chg = round((price - prev) / prev * 100, 2) if prev else 0.0
+                    result.append({"name": label, "price": price, "chg": chg})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return result or [{"name": "NIFTY 50", "price": 0, "chg": 0}]
 
 
 def _mock_signals() -> tuple[pd.DataFrame, pd.DataFrame]:
-    highs = pd.DataFrame([
-        {
-            "ticker": "RELIANCE.NS", "company_name": "Reliance Industries",
-            "sector": "Energy",      "current_price": 2941.80,
-            "week_52_high": 2960.00, "week_52_low": 2220.00,
-            "pct_from_high": 0.61,   "pct_from_low": 32.52,
-            "volume_surge": 1.85,    "pe_ratio": 24.3,
-            "intrinsic_value": 3180.00, "upside_downside_pct": 8.10,
-            "ret_1m": 4.20, "ret_3m": 11.80, "signal": "BREAKOUT_HIGH",
-            "why_text": "New energy investments and Jio subscriber growth exceeding analyst expectations drove the breakout.",
-            "news_headlines": [
-                "Reliance Q4 profit beats estimates on retail, Jio strength [ET]",
-                "Reliance New Energy unit secures $2B green financing [Reuters]",
-            ],
-        },
-        {
-            "ticker": "HCLTECH.NS",  "company_name": "HCL Technologies",
-            "sector": "IT",          "current_price": 1592.40,
-            "week_52_high": 1601.00, "week_52_low": 1235.00,
-            "pct_from_high": 0.54,   "pct_from_low": 28.90,
-            "volume_surge": 2.10,    "pe_ratio": 28.7,
-            "intrinsic_value": 1720.00, "upside_downside_pct": 8.02,
-            "ret_1m": 6.10, "ret_3m": 14.20, "signal": "BREAKOUT_HIGH",
-            "why_text": "Strong Q4 deal wins in AI services and cloud migration mandates accelerated above consensus.",
-            "news_headlines": [
-                "HCL Tech bags $500M AI services deal with European bank [Mint]",
-                "IT sector re-rating as AI spending cycle begins [Bloomberg]",
-            ],
-        },
-        {
-            "ticker": "BHARTIARTL.NS","company_name": "Bharti Airtel",
-            "sector": "Telecom",      "current_price": 1648.90,
-            "week_52_high": 1660.00,  "week_52_low": 1090.00,
-            "pct_from_high": 0.67,    "pct_from_low": 51.28,
-            "volume_surge": 1.42,     "pe_ratio": 45.2,
-            "intrinsic_value": 1580.00,"upside_downside_pct": -4.18,
-            "ret_1m": 3.80, "ret_3m": 18.40, "signal": "BREAKOUT_HIGH",
-            "why_text": "ARPU expansion from 5G monetisation and Jio price-hike spillover reducing competitive intensity.",
-            "news_headlines": [
-                "Airtel raises mobile tariffs by 10-25% across plans [Economic Times]",
-                "5G rollout reaches 500 cities; ARPU to hit ₹250 in FY26 [ICICI Securities]",
-            ],
-        },
-    ])
-    lows = pd.DataFrame([
-        {
-            "ticker": "NYKAA.NS",    "company_name": "FSN E-Commerce (Nykaa)",
-            "sector": "Retail",      "current_price": 142.55,
-            "week_52_high": 218.00,  "week_52_low": 139.00,
-            "pct_from_high": 34.61,  "pct_from_low": 2.55,
-            "volume_surge": 2.35,    "pe_ratio": 98.4,
-            "intrinsic_value": 110.00,"upside_downside_pct": -22.84,
-            "ret_1m": -12.30, "ret_3m": -28.50, "signal": "BREAKDOWN_LOW",
-            "why_text": "Margin pressure from intensified beauty brand competition and elevated customer acquisition costs.",
-            "news_headlines": [
-                "Nykaa Q3 EBITDA margins disappoint at 4.2% vs 6.1% expected [Jefferies]",
-                "Reliance Tira Beauty expansion threatens Nykaa market share [Mint]",
-            ],
-        },
-        {
-            "ticker": "PAYTM.NS",    "company_name": "One97 Communications",
-            "sector": "Fintech",     "current_price": 412.80,
-            "week_52_high": 698.00,  "week_52_low": 402.00,
-            "pct_from_high": 40.86,  "pct_from_low": 2.69,
-            "volume_surge": 3.12,    "pe_ratio": None,
-            "intrinsic_value": None, "upside_downside_pct": None,
-            "ret_1m": -18.40, "ret_3m": -35.20, "signal": "BREAKDOWN_LOW",
-            "why_text": "RBI action on Paytm Payments Bank continues to erode GMV and loan disbursement volumes.",
-            "news_headlines": [
-                "Paytm GMV falls 45% YoY after Payments Bank shutdown [HDFC Sec]",
-                "Paytm losses mount as loan portfolio shrinks rapidly [ET Markets]",
-            ],
-        },
-        {
-            "ticker": "ZOMATO.NS",   "company_name": "Zomato",
-            "sector": "Food Delivery","current_price": 192.40,
-            "week_52_high": 289.00,  "week_52_low": 188.00,
-            "pct_from_high": 33.43,  "pct_from_low": 2.34,
-            "volume_surge": 1.68,    "pe_ratio": 310.5,
-            "intrinsic_value": 148.00,"upside_downside_pct": -23.08,
-            "ret_1m": -9.80, "ret_3m": -21.40, "signal": "BREAKDOWN_LOW",
-            "why_text": "Food delivery growth deceleration and Blinkit unit economics concerns after aggressive dark-store expansion.",
-            "news_headlines": [
-                "Zomato food delivery order growth slows to 8% QoQ in Q3 [Kotak]",
-                "Blinkit reaches 1,000 stores but losses widen on infra costs [Bloomberg Quint]",
-            ],
-        },
-    ])
-    return highs, lows
+    """Returns empty DataFrames — no fake/dummy stocks are ever shown.
+    The caller sets is_mock=True and the UI shows an engine-unavailable warning."""
+    empty_cols = [
+        "ticker", "company_name", "sector", "current_price",
+        "week_52_high", "week_52_low", "pct_from_high", "pct_from_low",
+        "volume_surge", "pe_ratio", "ret_1m", "ret_3m", "signal",
+        "why_text", "news_headlines",
+    ]
+    return pd.DataFrame(columns=empty_cols), pd.DataFrame(columns=empty_cols)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -797,6 +760,9 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
     Re-runs only when `tickers` or `p` (params) change.
     Falls back to mock data when engine unavailable.
     """
+    # Drop placeholder tickers before they hit yfinance (e.g. DUMMYVEDL1-4.NS
+    # from Vedanta demerger) — they have no price data and produce noisy errors.
+    tickers = [t for t in tickers if not t.upper().startswith("DUMMY")]
     cache_key = f"{sorted(tickers)}|{p}"
 
     if (
@@ -1409,8 +1375,9 @@ def _fetch_all_news_context(ticker: str, company: str) -> str:
         if not _TAVILY_KEY:
             return items
         try:
+            _yr = datetime.now().year
             query = (f"{company} {clean} India NSE stock earnings results "
-                     f"order win acquisition announcement filing 2025 2026")
+                     f"order win acquisition announcement filing {_yr-1} {_yr}")
             resp  = _req.post(
                 "https://api.tavily.com/search",
                 json={
@@ -1795,7 +1762,8 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   bse_announcements_context: str = "",
                   calendar_context: str = "",
                   peer_context: str = "",
-                  pre_catalyst_context: str = "") -> dict:
+                  pre_catalyst_context: str = "",
+                  fresh_news_context: str = "") -> dict:
     """
     Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
@@ -1832,6 +1800,11 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     elif google_news_context:
         combined_news = _trim(google_news_context, 3000)
 
+    # fresh_news_context = same parallel pipeline (Exa+Tavily+NewsAPI+yfinance) as
+    # the pre-analysis quick screen — always today's data, no cache lag.
+    # It goes FIRST so the AI sees the most recent events before anything else.
+    fresh_block      = f"\n\n=== TODAY'S LIVE NEWS (same source as initial screen) ===\n{_trim(fresh_news_context, 3000)}" \
+                       if fresh_news_context else ""
     fmp_block        = f"\n\n{_trim(fmp_context, 2000)}"                   if fmp_context               else ""
     fred_block       = f"\n\n{_trim(fred_context, 800)}"                   if fred_context              else ""
     india_block      = f"\n\n{_trim(india_macro_context, 800)}"            if india_macro_context       else ""
@@ -1844,7 +1817,7 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     bse_block        = f"\n\n{_trim(bse_announcements_context, 800)}"      if bse_announcements_context else ""
     calendar_block   = f"\n\n{_trim(calendar_context, 200)}"               if calendar_context          else ""
     peer_block       = f"\n\n{_trim(peer_context, 600)}"                   if peer_context              else ""
-    all_context      = (news_block + screener_block + av_block + fmp_block
+    all_context      = (fresh_block + news_block + screener_block + av_block + fmp_block
                         + upgrades_block + surprise_block + bse_block
                         + fred_block + india_block + nse_bse_block
                         + calendar_block + peer_block)
@@ -1895,18 +1868,18 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
   "confidence": "High | Medium | Low",
   "business_model": "2-3 sentences: what {company} does, core revenue streams, competitive moat.",
   "primary_catalyst": {{
-    "headline": "One punchy sentence naming the ROOT CAUSE event with a specific figure and date — e.g. 'Apr 30 2026: {company} Q4 revenue surges 20% to Rs 32,439 Cr despite net loss'",
+    "headline": "One punchy sentence naming the ROOT CAUSE event with a specific figure and date — e.g. 'DD Mon YYYY: [company] Q4 revenue surges 20% to Rs X,XXX Cr'",
     "impact_pct": "Estimated % of total price move driven by this single catalyst (e.g. '+18%')",
     "detail": "3-4 sentences of evidence: exact figures, dates, and WHY this moved the stock. Be specific."
   }},
   "summary": "3-4 sentence analyst note: root cause verdict, key risk, and what triggered this extreme. Mention the primary catalyst explicitly.",
   "catalyst_timeline": [
-    {{"date": "Mon YYYY", "event": "Specific one-line event", "impact": "price/sentiment effect"}}
+    {{"date": "Mon YYYY", "event": "Specific one-line event naming {company} directly — NO other companies", "impact": "price/sentiment effect"}}
   ],
   "catalysts": [
     {{
       "type": "positive | negative | neutral",
-      "headline": "Dated headline with a specific figure — e.g. 'May 18 2026: US drops fraud charges, boosting sentiment'",
+      "headline": "Dated headline with a specific figure — e.g. 'DD Mon YYYY: [event with specific number]'",
       "detail": "2-3 sentences: what happened, exact figures (Rs Cr, %, dates), and why it moved the stock.",
       "impact_pct": "e.g. '+8%' or '-5%'",
       "date": "Month DD, YYYY",
@@ -1925,7 +1898,7 @@ RULES (violations will make the output useless):
 - Do NOT use price/volume movement as a catalyst — only ROOT CAUSE business events
 - primary_catalyst headline must contain a specific date and figure
 - impact_pct values across all catalysts should roughly sum to the total move from the opposite 52W extreme
-- catalyst_timeline: 3-5 events in strict chronological order
+- catalyst_timeline: 3-5 events in strict chronological order — EVERY event must involve {company} directly; never include events from other companies, peers, or macro events unless they directly name {company}
 - watch_next: ONLY events after {_today_str} — no past events
 - Write with conviction and specific numbers — no hedging language like "may", "could", "might"
 - sources: list only unique publications actually referenced"""
@@ -2080,7 +2053,7 @@ def _parse_rss_feed(url: str, company: str, ticker: str,
     return results
 
 
-@st.cache_data(ttl=600, show_spinner=False)   # 10 min — live Indian financial RSS
+@st.cache_data(ttl=300, show_spinner=False)   # 5 min — live Indian financial RSS
 def _fetch_indian_rss(company: str, ticker: str) -> list[dict]:
     """
     Fetch live news from ET Markets, Moneycontrol, and Business Standard RSS feeds.
@@ -2117,7 +2090,7 @@ def _fetch_indian_rss(company: str, ticker: str) -> list[dict]:
     return all_articles[:15]
 
 
-@st.cache_data(ttl=900, show_spinner=False)   # 15 min — conserves 100 req/day quota
+@st.cache_data(ttl=300, show_spinner=False)   # 5 min — stay fresh
 def _fetch_newsapi(company: str, ticker: str, api_key: str) -> list[dict]:
     """
     Search NewsAPI.org for the company across Indian financial outlets.
@@ -2184,7 +2157,7 @@ def _fetch_newsapi(company: str, ticker: str, api_key: str) -> list[dict]:
         return []
 
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_live_news(company: str, ticker: str) -> list[dict]:
     """
     Master news fetcher — merges NewsAPI + Indian RSS (ET/MC/BS/Mint).
@@ -2214,7 +2187,7 @@ def _fetch_live_news(company: str, ticker: str) -> list[dict]:
     return results[:20]
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
     """
     Search Tavily for recent news + analyst commentary on a stock.
@@ -2225,7 +2198,8 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
     clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
-    query = f"{company} {clean_ticker} stock India latest news analyst target earnings results 2025 2026"
+    _yr = datetime.now().year
+    query = f"{company} {clean_ticker} stock India latest news analyst target earnings results {_yr-1} {_yr}"
 
     try:
         import requests as _req
@@ -2285,7 +2259,7 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
         return ""
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
     """
     Exa AI neural search — PRIMARY web research source for the detailed analysis.
@@ -2372,7 +2346,7 @@ def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
 
     # ── Query 3: Corporate events — earnings calls, filings, announcements ─────
     events_q = (f"{company} {clean} India quarterly earnings call results "
-                f"dividend board meeting order win acquisition expansion 2025 2026")
+                f"dividend board meeting order win acquisition expansion {datetime.now().year-1} {datetime.now().year}")
     events_results = _exa_search(events_q, cutoff_60d, num=5)
     if events_results:
         lines.append(f"\n=== Exa: {company} — Corporate Events & Announcements ===")
@@ -2406,7 +2380,12 @@ def _fetch_index_tickers(universe: str) -> list[str]:
         resp.raise_for_status()
         df = pd.read_csv(io.StringIO(resp.text))
         symbols = df["Symbol"].dropna().str.strip().tolist()
-        tickers = [s + ".NS" for s in symbols if s]
+        # Filter out NSE placeholder/dummy tickers (e.g. DUMMYVEDL1-4 created
+        # for Vedanta demerger entities — they have no real price data).
+        tickers = [
+            s + ".NS" for s in symbols
+            if s and not s.upper().startswith("DUMMY")
+        ]
         return tickers
     except Exception:
         return []
@@ -3282,6 +3261,12 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
+    # ── Fetch the same multi-source fresh news used by the pre-analysis ──────────
+    # _fetch_all_news_context runs Exa + Tavily + NewsAPI + yfinance in parallel
+    # with today's date as the cutoff — same pipeline as the quick catalyst screen.
+    with st.spinner("Fetching today's news (Exa + Tavily + NewsAPI in parallel)…"):
+        fresh_news_ctx = _fetch_all_news_context(ticker, name)
+
     # ── Fetch live news (NewsAPI + ET/MC/BS RSS — also used for news feed below) ─
     with st.spinner("Fetching live news (NewsAPI + ET · MC · BS)…"):
         gn_articles = _fetch_live_news(name, ticker)
@@ -3335,6 +3320,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             calendar_context=calendar_ctx,
             peer_context=peer_ctx,
             pre_catalyst_context=_pre_catalyst_ctx,
+            fresh_news_context=fresh_news_ctx,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────

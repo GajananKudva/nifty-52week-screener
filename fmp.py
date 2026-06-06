@@ -159,7 +159,8 @@ def get_latest_transcript(symbol: str) -> str:
     # lst items: {"symbol":…, "quarter":…, "year":…, "date":…}
     latest = sorted(lst, key=lambda x: (x.get("year", 0),
                                          x.get("quarter", 0)), reverse=True)[0]
-    q, y   = latest.get("quarter", 1), latest.get("year", 2024)
+    from datetime import datetime as _dt
+    q, y   = latest.get("quarter", 1), latest.get("year", _dt.now().year - 1)
 
     # Step 2: fetch actual transcript
     transcript = _get(f"earning_call_transcript/{sym}",
