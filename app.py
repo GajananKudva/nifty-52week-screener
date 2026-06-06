@@ -1854,10 +1854,18 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     _today_str = datetime.now().strftime("%B %d, %Y")
 
-    prompt = f"""You are a senior equity research analyst at a top institutional fund.
-Write a Stock Catalyst Analysis for {company} ({ticker}), which is near its 52-week {_action_word}.
+    _clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-TODAY'S DATE: {_today_str}  ← use this when deciding what is "upcoming" vs already past.
+    prompt = f"""You are a senior equity research analyst at a top institutional fund.
+Today is {_today_str}. Write a deep-dive Stock Catalyst Analysis for {company} ({ticker}).
+
+═══ ENTITY ISOLATION — READ FIRST ═══
+- Analyze ONLY {company} (NSE: {_clean_ticker}).
+- Every catalyst MUST explicitly name "{company}" or "{_clean_ticker}" in the source article.
+- DO NOT attribute news from parent group, subsidiaries, JVs, sector peers, or promoters — even if they share a brand name.
+- DO NOT describe price movement or volume as the catalyst. Find the ROOT CAUSE business event.
+- If a headline refers to a group entity rather than {_clean_ticker} directly, exclude it.
+══════════════════════════════════════
 
 MARKET DATA
   Current Price : Rs{price:,.2f}
@@ -1867,60 +1875,60 @@ MARKET DATA
   P/E           : {pe if pe else "N/A"}x
   Returns       : 1M={f"{ret_1m:+.1f}%" if ret_1m is not None else "N/A"}  3M={f"{ret_3m:+.1f}%" if ret_3m is not None else "N/A"}  6M={f"{ret_6m:+.1f}%" if ret_6m is not None else "N/A"}  1Y={f"{ret_1y:+.1f}%" if ret_1y is not None else "N/A"}
   Sector        : {sector}
-{f"  Recent closes (oldest to newest): {price_series}" if price_series else ""}
+{f"  Recent closes (oldest→newest): {price_series}" if price_series else ""}
 
-{f"CONTINUITY FROM INITIAL SCREEN:{chr(10)}{pre_catalyst_context}{chr(10)}" if pre_catalyst_context else ""}
-RECENT NEWS AND FILINGS (use these as your primary source for catalyst dates and figures):
+{f"══ CONFIRMED PRIMARY CATALYST (from initial screen — must be catalyst #1) ══{chr(10)}{pre_catalyst_context}{chr(10)}═══════════════════════════════════════════════════════════════════{chr(10)}" if pre_catalyst_context else ""}
+NEWS & RESEARCH CONTEXT (Exa neural search + Tavily + NewsAPI + BSE filings — use these as primary evidence):
 {all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
-TASK:
-Identify 4 to 7 specific catalysts that explain why {company} is at a 52-week {_action_word}.
-{"The PRE-ANALYSIS PRIMARY CATALYST above must appear as the first catalyst in your list — expand it with more detail and evidence from the news context." if pre_catalyst_context else ""}
-For each catalyst, provide a dated headline, a 2-3 sentence explanation with specific figures, and the source.
-Include a mix of positive, negative, and neutral catalysts where relevant.
-Classify overall sentiment and confidence.
+══ YOUR TASK ══
+Step 1 — Identify the PRIMARY ROOT CAUSE: What single business event most directly caused {company} to reach a 52-week {_action_word}? This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, etc.) — NOT a market-wide move.
+{"Step 2 — The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Step 2 — Build the primary_catalyst field around the root cause you found in Step 1."}
+Step 3 — List 4–6 supporting catalysts that contributed. Mix positive/negative/neutral. Each must have a dated headline and specific figures.
+Step 4 — Build a chronological timeline showing how events cascaded into the 52-week {_action_word}.
+Step 5 — Assess what to watch next (future events only, after {_today_str}).
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 
 {{
-  "sentiment": "Bullish",
-  "confidence": "Medium",
-  "business_model": "2-3 sentences: what {company} does, its core revenue streams, competitive moat.",
+  "sentiment": "Bullish | Bearish | Neutral",
+  "confidence": "High | Medium | Low",
+  "business_model": "2-3 sentences: what {company} does, core revenue streams, competitive moat.",
   "primary_catalyst": {{
-    "headline": "Single most important reason {company} is at a 52-week {_action_word} — one punchy sentence with a specific figure",
-    "impact_pct": "Estimated % of total price move driven by this catalyst (e.g. '-18%' or '+24%')",
-    "detail": "2-3 sentences of supporting evidence with specific data points"
+    "headline": "One punchy sentence naming the ROOT CAUSE event with a specific figure and date — e.g. 'Apr 30 2026: {company} Q4 revenue surges 20% to Rs 32,439 Cr despite net loss'",
+    "impact_pct": "Estimated % of total price move driven by this single catalyst (e.g. '+18%')",
+    "detail": "3-4 sentences of evidence: exact figures, dates, and WHY this moved the stock. Be specific."
   }},
-  "summary": "3-4 sentence analyst note: overall verdict, key risk, and what triggered this extreme.",
+  "summary": "3-4 sentence analyst note: root cause verdict, key risk, and what triggered this extreme. Mention the primary catalyst explicitly.",
   "catalyst_timeline": [
-    {{"date": "Month YYYY", "event": "One-line event description", "impact": "brief price/sentiment effect"}}
+    {{"date": "Mon YYYY", "event": "Specific one-line event", "impact": "price/sentiment effect"}}
   ],
   "catalysts": [
     {{
-      "type": "positive",
-      "headline": "Catalyst headline with specific figure or date",
-      "detail": "2-3 sentences with Rs crore amounts, %, dates. Why does this move the stock?",
-      "impact_pct": "Estimated % of move attributable to this catalyst (e.g. '+8%' or '-12%')",
+      "type": "positive | negative | neutral",
+      "headline": "Dated headline with a specific figure — e.g. 'May 18 2026: US drops fraud charges, boosting sentiment'",
+      "detail": "2-3 sentences: what happened, exact figures (Rs Cr, %, dates), and why it moved the stock.",
+      "impact_pct": "e.g. '+8%' or '-5%'",
       "date": "Month DD, YYYY",
-      "source": "Source name"
+      "source": "Publication name"
     }}
   ],
   "watch_next": [
-    {{"event": "Upcoming event name", "date": "Approximate date or quarter", "implication": "What it means for the stock if positive/negative"}}
+    {{"event": "Future event name", "date": "Date after {_today_str}", "implication": "Bull/bear implication"}}
   ],
-  "peer_context": "1-2 sentences: is this move company-specific or sector-wide? How does {company} compare to peers?",
-  "sources": ["Source Name, Month DD YYYY"]
+  "peer_context": "1-2 sentences: is this move company-specific or sector-wide? How does {company} compare to closest peers?",
+  "sources": ["Publication Name, Month DD YYYY"]
 }}
 
-Rules:
-- catalyst type must be exactly: "positive", "negative", or "neutral"
-- impact_pct on each catalyst must sum to roughly the total move from the opposite extreme
-- primary_catalyst must be the single most impactful item — not a generic statement
-- catalyst_timeline: 3-5 events in chronological order showing the causal chain
-- watch_next: 2-3 specific FUTURE events only — all dates must be AFTER {_today_str}. Do not list events that have already occurred.
-- Each headline must include at least one specific figure or date
-- Write with conviction — avoid hedging language
-- sources array should list unique sources referenced"""
+RULES (violations will make the output useless):
+- Every catalyst must name {company} or {_clean_ticker} — no group-level or peer news
+- Do NOT use price/volume movement as a catalyst — only ROOT CAUSE business events
+- primary_catalyst headline must contain a specific date and figure
+- impact_pct values across all catalysts should roughly sum to the total move from the opposite 52W extreme
+- catalyst_timeline: 3-5 events in strict chronological order
+- watch_next: ONLY events after {_today_str} — no past events
+- Write with conviction and specific numbers — no hedging language like "may", "could", "might"
+- sources: list only unique publications actually referenced"""
 
     last_err = ""
     try:
@@ -1928,7 +1936,7 @@ Rules:
             api_key=_OPENAI_KEY,
             base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
         )
-        kwargs: dict = {"temperature": 0.2}
+        kwargs: dict = {"temperature": 0.1}   # low temp = more factual, less hallucination
         # Reasoning/thinking models (DeepSeek R1, QwQ) do NOT support
         # response_format JSON mode — only enable it for standard models
         _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
