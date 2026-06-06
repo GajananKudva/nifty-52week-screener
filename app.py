@@ -1794,7 +1794,8 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   earnings_surprise_context: str = "",
                   bse_announcements_context: str = "",
                   calendar_context: str = "",
-                  peer_context: str = "") -> dict:
+                  peer_context: str = "",
+                  pre_catalyst_context: str = "") -> dict:
     """
     Call AI with a senior equity analyst prompt focused on WHY a stock hit its 52W extreme.
     Results cached in st.session_state — only successful calls are cached.
@@ -1868,11 +1869,13 @@ MARKET DATA
   Sector        : {sector}
 {f"  Recent closes (oldest to newest): {price_series}" if price_series else ""}
 
+{f"CONTINUITY FROM INITIAL SCREEN:{chr(10)}{pre_catalyst_context}{chr(10)}" if pre_catalyst_context else ""}
 RECENT NEWS AND FILINGS (use these as your primary source for catalyst dates and figures):
 {all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
 TASK:
 Identify 4 to 7 specific catalysts that explain why {company} is at a 52-week {_action_word}.
+{"The PRE-ANALYSIS PRIMARY CATALYST above must appear as the first catalyst in your list — expand it with more detail and evidence from the news context." if pre_catalyst_context else ""}
 For each catalyst, provide a dated headline, a 2-3 sentence explanation with specific figures, and the source.
 Include a mix of positive, negative, and neutral catalysts where relevant.
 Classify overall sentiment and confidence.
@@ -1899,8 +1902,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
       "detail": "2-3 sentences with Rs crore amounts, %, dates. Why does this move the stock?",
       "impact_pct": "Estimated % of move attributable to this catalyst (e.g. '+8%' or '-12%')",
       "date": "Month DD, YYYY",
-      "source": "Source name",
-      "url": "Direct article URL if available from context, else empty string"
+      "source": "Source name"
     }}
   ],
   "watch_next": [
@@ -3285,6 +3287,22 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             )
         gn_context = "\n\n".join(lines)
 
+    # Pull primary catalyst from pre-analysis (stored during screen run)
+    _pre_cache = st.session_state.get(f"ai_{ticker}_{sig}", {})
+    _pre_primary = _pre_cache.get("primary_catalyst", {})
+    _pre_catalyst_ctx = ""
+    if _pre_primary and isinstance(_pre_primary, dict):
+        _pc_head = _pre_primary.get("headline", "")
+        _pc_det  = _pre_primary.get("detail", "")
+        if _pc_head:
+            _pre_catalyst_ctx = (
+                f"PRE-ANALYSIS PRIMARY CATALYST (from initial screen — must be addressed):\n"
+                f"  Headline: {_pc_head}\n"
+                f"  Detail: {_pc_det}\n"
+                f"This was identified as the single most impactful driver. Your detailed analysis "
+                f"MUST explain and expand on this catalyst with deeper evidence."
+            )
+
     with st.spinner(f"AI is writing the analyst report for {name}…"):
         analysis = _ai_deep_dive(
             ticker=ticker, company=name, sector=row.get("sector", ""),
@@ -3308,6 +3326,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             bse_announcements_context=bse_ctx,
             calendar_context=calendar_ctx,
             peer_context=peer_ctx,
+            pre_catalyst_context=_pre_catalyst_ctx,
         )
 
     # ── Detect quota error and show actionable help ───────────────────────────
@@ -3442,20 +3461,19 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             'text-transform:uppercase;color:#8B949E;margin:4px 0 10px;">Key Catalysts</div>',
             unsafe_allow_html=True,
         )
+        import html as _html
+        import urllib.parse as _up
         for cat in catalysts:
             cat_type   = str(cat.get("type", "neutral")).lower()
-            headline   = cat.get("headline", "")
-            detail     = cat.get("detail", "")
-            cat_date   = cat.get("date", "")
-            cat_source = cat.get("source", "")
+            headline   = _html.escape(cat.get("headline", ""))
+            detail     = _html.escape(cat.get("detail", ""))
+            cat_date   = _html.escape(cat.get("date", ""))
+            cat_source = _html.escape(cat.get("source", ""))
             cat_impact = cat.get("impact_pct", "")
-            cat_url    = (cat.get("url") or "").strip()
 
-            # Fallback: Google News search for the headline
-            import urllib.parse as _up
-            if not cat_url:
-                _q = _up.quote_plus(f"{headline} {name}")
-                cat_url = f"https://www.google.com/search?q={_q}&tbm=nws"
+            # Always use Google News search — AI-hallucinated URLs are unreliable
+            _q = _up.quote_plus(f"{cat.get('headline', '')} {name}")
+            cat_url = f"https://www.google.com/search?q={_q}&tbm=nws"
 
             _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
             _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
