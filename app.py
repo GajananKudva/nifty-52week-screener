@@ -1363,121 +1363,159 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     return None if selected.startswith("—") else selected
 
 
-def _fetch_quick_news_context(ticker: str, company: str) -> str:
+def _fetch_all_news_context(ticker: str, company: str) -> str:
     """
-    Lightweight news fetch for the parallel enrichment pass.
-    Combines yfinance headlines + a fast Tavily search.
-    Runs inside a worker thread — must be self-contained.
+    Aggregate news from ALL available sources for the best pre-analysis context.
+    Sources (run in order, merged and sorted newest-first):
+      1. yfinance headlines   — free, fast, company-specific
+      2. Tavily advanced      — web search with date filter (primary)
+      3. NewsAPI              — date-sorted articles (NEWSAPI_KEY)
+    All results carry publication dates so the model can detect staleness.
     """
     import requests as _req
-    from datetime import datetime
-    lines: list[str] = []
+    from datetime import datetime, date, timedelta
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    # ── yfinance news (fast, no quota cost) ──────────────────────────────────
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        news = t.news or []
-        for item in news[:5]:
-            content = item.get("content", {}) if isinstance(item, dict) else {}
-            title = (content.get("title") or item.get("title") or "")[:120]
-            pub   = (content.get("pubDate") or item.get("providerPublishTime") or "")
-            if title:
+    clean        = ticker.replace(".NS", "").replace(".BO", "")
+    today_str    = date.today().strftime("%d %b %Y")
+    cutoff_days  = 30
+    all_items: list[dict] = []   # {date_str, source, title, snippet}
+
+    # ── 1. yfinance headlines ─────────────────────────────────────────────────
+    def _yf_news():
+        items = []
+        try:
+            import yfinance as _yf
+            for item in (_yf.Ticker(ticker).news or [])[:8]:
+                content = item.get("content", {}) if isinstance(item, dict) else {}
+                title   = (content.get("title") or item.get("title") or "")[:150]
+                pub     = content.get("pubDate") or item.get("providerPublishTime") or ""
+                if not title:
+                    continue
                 try:
-                    dt = datetime.fromtimestamp(pub).strftime("%b %d") if isinstance(pub, (int, float)) else str(pub)[:10]
+                    dt = datetime.fromtimestamp(pub).strftime("%Y-%m-%d") \
+                         if isinstance(pub, (int, float)) else str(pub)[:10]
                 except Exception:
                     dt = ""
-                lines.append(f"[{dt}] {title}")
-    except Exception:
-        pass
+                items.append({"date": dt, "source": "yfinance", "title": title, "snippet": ""})
+        except Exception:
+            pass
+        return items
 
-    # ── Tavily quick search (3 results, basic depth, ~1s) ────────────────────
-    if _TAVILY_KEY:
+    # ── 2. Tavily advanced search ─────────────────────────────────────────────
+    def _tavily_news():
+        items = []
+        if not _TAVILY_KEY:
+            return items
         try:
-            clean = ticker.replace(".NS", "").replace(".BO", "")
-            query = f"{company} {clean} India stock news earnings results announcement 2025 2026"
-            resp = _req.post(
+            query = (f"{company} {clean} India NSE stock earnings results "
+                     f"order win acquisition announcement filing 2025 2026")
+            resp  = _req.post(
                 "https://api.tavily.com/search",
                 json={
                     "api_key":        _TAVILY_KEY,
                     "query":          query,
-                    "search_depth":   "basic",
+                    "search_depth":   "advanced",
                     "include_answer": True,
-                    "max_results":    5,
+                    "max_results":    8,
+                    "days":           cutoff_days,
                     "include_domains": [
                         "economictimes.indiatimes.com", "moneycontrol.com",
                         "livemint.com", "business-standard.com",
+                        "bseindia.com", "nseindia.com",
                         "financialexpress.com", "ndtvprofit.com",
-                        "bseindia.com",
+                        "reuters.com", "thehindubuisessline.com",
+                        "cnbctv18.com", "zeebiz.com",
                     ],
+                },
+                timeout=12,
+            )
+            if resp.status_code == 200:
+                data    = resp.json()
+                answer  = data.get("answer", "")
+                if answer:
+                    items.append({"date": today_str, "source": "Tavily-summary",
+                                  "title": "Web Summary", "snippet": answer[:400]})
+                for r in data.get("results", []):
+                    title   = (r.get("title") or "")[:150]
+                    snippet = (r.get("content") or "")[:200].replace("\n", " ")
+                    pub     = (r.get("published_date") or "")[:10]
+                    src     = r.get("url", "").split("/")[2].replace("www.", "") \
+                              if r.get("url") else "web"
+                    if title:
+                        items.append({"date": pub, "source": src,
+                                      "title": title, "snippet": snippet})
+        except Exception:
+            pass
+        return items
+
+    # ── 3. NewsAPI ────────────────────────────────────────────────────────────
+    def _newsapi_news():
+        items = []
+        if not _NEWSAPI_KEY:
+            return items
+        try:
+            from_date = (date.today() - timedelta(days=cutoff_days)).strftime("%Y-%m-%d")
+            resp = _req.get(
+                "https://newsapi.org/v2/everything",
+                params={
+                    "apiKey":   _NEWSAPI_KEY,
+                    "q":        f'"{company}" OR "{clean}" NSE India',
+                    "from":     from_date,
+                    "sortBy":   "publishedAt",
+                    "language": "en",
+                    "pageSize": 8,
                 },
                 timeout=10,
             )
             if resp.status_code == 200:
-                data = resp.json()
-                answer = data.get("answer", "")
-                if answer:
-                    lines.insert(0, f"[Tavily summary] {answer[:300]}")
-                for r in data.get("results", [])[:4]:
-                    title   = (r.get("title") or "")[:100]
-                    snippet = (r.get("content") or "")[:150]
-                    src     = r.get("url", "").split("/")[2] if r.get("url") else ""
-                    if title:
-                        lines.append(f"[{src}] {title} — {snippet}")
+                for art in resp.json().get("articles", []):
+                    title   = (art.get("title") or "")[:150]
+                    snippet = (art.get("description") or "")[:200]
+                    pub     = (art.get("publishedAt") or "")[:10]
+                    src     = (art.get("source", {}).get("name") or "NewsAPI")
+                    if title and "[Removed]" not in title:
+                        items.append({"date": pub, "source": src,
+                                      "title": title, "snippet": snippet})
         except Exception:
             pass
+        return items
 
-    return "\n".join(lines[:10]) if lines else ""
+    # ── Run all 3 in parallel ─────────────────────────────────────────────────
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {
+            pool.submit(_yf_news):      "yfinance",
+            pool.submit(_tavily_news):  "tavily",
+            pool.submit(_newsapi_news): "newsapi",
+        }
+        for f in as_completed(futures, timeout=15):
+            try:
+                all_items.extend(f.result())
+            except Exception:
+                pass
 
+    if not all_items:
+        return ""
 
-def _tavily_search(query: str, days: int = 30) -> str:
-    """Execute a Tavily search and return formatted results sorted by date."""
-    if not _TAVILY_KEY:
-        return "Search unavailable — no Tavily key"
-    try:
-        import requests as _req
-        from datetime import date as _d
-        resp = _req.post(
-            "https://api.tavily.com/search",
-            json={
-                "api_key":        _TAVILY_KEY,
-                "query":          query,
-                "search_depth":   "advanced",
-                "include_answer": True,
-                "max_results":    7,
-                "days":           days,
-                "include_domains": [
-                    "economictimes.indiatimes.com", "moneycontrol.com",
-                    "livemint.com", "business-standard.com",
-                    "bseindia.com", "nseindia.com",
-                    "financialexpress.com", "ndtvprofit.com",
-                    "reuters.com", "thehindubuisessline.com",
-                ],
-            },
-            timeout=12,
-        )
-        if resp.status_code != 200:
-            return f"Search failed (HTTP {resp.status_code})"
-        data    = resp.json()
-        lines   = [f"[Search results as of {_d.today().strftime('%d %b %Y')}]"]
-        answer  = data.get("answer", "")
-        if answer:
-            lines.append(f"Summary: {answer[:400]}")
-        results = sorted(
-            data.get("results", []),
-            key=lambda x: x.get("published_date", ""),
-            reverse=True,
-        )
-        for r in results[:6]:
-            title    = (r.get("title") or "")[:120]
-            content  = (r.get("content") or "")[:200].replace("\n", " ")
-            pub_date = r.get("published_date", "")
-            source   = r.get("url", "").split("/")[2].replace("www.", "") if r.get("url") else ""
-            if title:
-                lines.append(f"[{source}] [{pub_date}] {title}  —  {content}")
-        return "\n\n".join(lines)
-    except Exception as exc:
-        return f"Search error: {exc}"
+    # ── Deduplicate by title prefix, sort newest-first ────────────────────────
+    seen: set[str] = set()
+    unique: list[dict] = []
+    for item in sorted(all_items, key=lambda x: x["date"], reverse=True):
+        key = item["title"][:60].lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+
+    # ── Format for the prompt ─────────────────────────────────────────────────
+    lines = [f"[News context as of {today_str} — {len(unique)} articles from "
+             f"Tavily / NewsAPI / yfinance, newest first]"]
+    for item in unique[:12]:
+        date_tag = f"[{item['date']}]" if item["date"] else ""
+        src_tag  = f"[{item['source']}]"
+        snippet  = f"  — {item['snippet']}" if item["snippet"] else ""
+        lines.append(f"{src_tag} {date_tag} {item['title']}{snippet}")
+
+    return "\n".join(lines)
 
 
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
@@ -1485,16 +1523,12 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
                           ret1m: float, ret3m: float,
                           vsurge: float, pe: float) -> dict:
     """
-    Groq + Tavily function-calling major catalyst.
+    Major Catalyst — single Groq call with pre-aggregated multi-source context.
 
     Flow:
-      1. llama-3.3-70b-versatile receives the analyst prompt + a search_web tool.
-      2. Model calls search_web(query) — we execute via Tavily (advanced, last 30 days,
-         results sorted newest-first).
-      3. Model receives dated search results and produces the final JSON.
-
-    Uses the improved prompt with today's date, entity-isolation rules, and
-    explicit stale-news detection per the user's specification.
+      1. _fetch_all_news_context pulls Tavily + NewsAPI + yfinance in parallel.
+      2. llama-3.3-70b-versatile receives all dated articles + the improved prompt.
+      3. Returns structured JSON with headline, date, staleness flag, source.
     """
     if not _AI_OK:
         return {}
@@ -1505,45 +1539,30 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         direction    = "52-week high" if is_hi else "52-week low"
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
+        # ── Step 1: aggregate all news sources in parallel ────────────────────
+        news_context = _fetch_all_news_context(ticker, company)
 
-        # ── Tool definition ───────────────────────────────────────────────────
-        tools = [{
-            "type": "function",
-            "function": {
-                "name": "search_web",
-                "description": (
-                    "Search for recent news, BSE/NSE filings, and analyst reports about "
-                    "an Indian listed company. Use this to find what triggered a stock move."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "Specific search query e.g. "
-                                "'ACME Solar NSE earnings order win June 2026 BSE filing'"
-                            ),
-                        }
-                    },
-                    "required": ["query"],
-                },
-            },
-        }]
+        if not news_context:
+            # No news at all — return data-driven heuristic immediately
+            raise ValueError("no_news")
+
+        # ── Step 2: single Groq call with full context ────────────────────────
+        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
 
         system_msg = f"""You are a senior equity analyst. Today is {today}.
 
 ENTITY ISOLATION RULES (critical):
 - Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company.
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
-- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}, even if they share a brand or promoter.
-- If a headline refers to the group/holding entity rather than {clean_ticker} specifically, flag it as "group-level, not {clean_ticker}-specific" and exclude it.
+- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers — even if they share a brand or promoter.
+- If a headline refers to a group/holding entity rather than {clean_ticker}, exclude it.
 - If you cannot verify a catalyst names {company} directly, exclude it.
+- Do NOT describe price or volume movement as the catalyst — find the ROOT CAUSE event.
+- Do NOT use the ticker symbol in the headline — use the company name.
 
-After searching, return ONLY this JSON — no markdown, no extra text:
+OUTPUT: Return ONLY valid JSON — no markdown, no extra text:
 {{"headline": "DD Mon YYYY: specific catalyst under 90 chars", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
-Set is_stale=true if the most recent article you found is older than 7 days from today."""
+Set is_stale=true if the most recent article in the context is older than 7 days from today ({today})."""
 
         user_msg = (
             f"{company} (NSE: {clean_ticker}) has just hit its {direction}.\n"
@@ -1551,102 +1570,64 @@ Set is_stale=true if the most recent article you found is older than 7 days from
             f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'} | "
             f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'} | "
             f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
-            f"Search for the most recent news (last 7 days preferred, last 30 days acceptable) "
-            f"about {company} ({clean_ticker}) to identify what triggered this move. "
-            f"Prioritise BSE/NSE filings, earnings results, order wins, analyst upgrades/targets. "
-            f"State the publication date next to each catalyst found."
+            f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
+            f"Identify the SPECIFIC dated catalyst that triggered this move. "
+            f"Prefer the most recent article. If the most recent item is older than 7 days, "
+            f"set is_stale=true. State the publication date in the headline."
         )
 
-        messages = [
-            {"role": "system", "content": system_msg},
-            {"role": "user",   "content": user_msg},
-        ]
-
-        # ── Step 1: model decides what to search ─────────────────────────────
-        r1 = client.chat.completions.create(
+        resp   = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.1,
-            max_tokens=400,
-        )
-        msg1 = r1.choices[0].message
-
-        # ── Step 2: execute tool calls ────────────────────────────────────────
-        if msg1.tool_calls:
-            messages.append({
-                "role":       "assistant",
-                "content":    msg1.content or "",
-                "tool_calls": [
-                    {"id": tc.id, "type": "function",
-                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                    for tc in msg1.tool_calls
-                ],
-            })
-            for tc in msg1.tool_calls:
-                if tc.function.name == "search_web":
-                    query        = json.loads(tc.function.arguments).get("query", "")
-                    search_result = _tavily_search(query, days=30)
-                    messages.append({
-                        "role":         "tool",
-                        "tool_call_id": tc.id,
-                        "content":      search_result,
-                    })
-        else:
-            # Model didn't call the tool — give it the data via a direct Tavily fetch
-            fallback_query   = f"{company} {clean_ticker} India stock news results announcement"
-            fallback_results = _tavily_search(fallback_query, days=30)
-            messages.append({"role": "user", "content": f"Search results:\n{fallback_results}"})
-
-        # ── Step 3: model reasons over results and returns JSON ───────────────
-        r2 = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user",   "content": user_msg},
+            ],
             temperature=0.1,
             max_tokens=300,
             response_format={"type": "json_object"},
         )
-        raw    = r2.choices[0].message.content.strip()
-        result = json.loads(raw)
+        result = json.loads(resp.choices[0].message.content.strip())
 
-        # ── Validate headline — reject bad model fallbacks ────────────────────
+        # ── Validate — reject bad fallback headlines ──────────────────────────
         headline = result.get("headline", "")
         _bad = (
             not headline
-            or clean_ticker.lower() in headline.lower()        # ticker symbol in headline
-            or ticker.lower() in headline.lower()              # .NS form in headline
-            or "52-week" in headline.lower()                   # describes price action
+            or clean_ticker.lower() in headline.lower()
+            or ticker.lower() in headline.lower()
+            or "52-week" in headline.lower()
             or "52 week" in headline.lower()
-            or headline.lower().endswith("high")
-            or headline.lower().endswith("low")
+            or headline.lower().strip().endswith("high")
+            or headline.lower().strip().endswith("low")
         )
         if _bad:
-            # Build a meaningful heuristic from available data
-            _parts = []
-            if ret3m and abs(ret3m) >= 5:
-                _parts.append(f"{ret3m:+.1f}% over 3 months")
-            elif ret1m and abs(ret1m) >= 3:
-                _parts.append(f"{ret1m:+.1f}% in 1 month")
-            if vsurge and vsurge >= 1.5:
-                _parts.append(f"{vsurge:.1f}× volume surge")
-            if pe and pe > 0:
-                _parts.append(f"P/E {pe:.0f}×")
-            if sector:
-                _parts.append(f"{sector} sector momentum")
-            fallback_headline = (
-                f"{company}: " + " · ".join(_parts)
-                if _parts else f"{company} at {direction}"
-            )
-            result["headline"]      = fallback_headline[:90]
-            result["is_stale"]      = True
-            result["catalyst_date"] = "Not found"
-            result["source"]        = "Heuristic (no recent news found)"
+            raise ValueError("bad_headline")
 
         return result
 
     except Exception:
-        return {}
+        # ── Heuristic fallback — data-driven, never hallucinated ──────────────
+        _parts = []
+        if ret3m and abs(ret3m) >= 5:
+            _parts.append(f"{ret3m:+.1f}% over 3 months")
+        elif ret1m and abs(ret1m) >= 3:
+            _parts.append(f"{ret1m:+.1f}% over 1 month")
+        if vsurge and vsurge >= 1.5:
+            _parts.append(f"{vsurge:.1f}× volume surge")
+        if pe and pe > 0:
+            _parts.append(f"P/E {pe:.0f}×")
+        if sector:
+            _parts.append(f"{sector} sector momentum")
+        fallback = (
+            f"{company}: " + " · ".join(_parts)
+            if _parts else f"{company} — no recent news found"
+        )
+        return {
+            "headline":      fallback[:90],
+            "impact_pct":    "N/A",
+            "catalyst_date": "Not found",
+            "is_stale":      True,
+            "source":        "Heuristic (no recent news found)",
+        }
 
 
 def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> int:
@@ -2276,22 +2257,24 @@ def _fetch_yf_company_context(ticker: str) -> str:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_yf_upgrades_context(ticker: str) -> str:
-    """Analyst consensus + price targets from yfinance info.
-    More reliable than upgrades_downgrades for Indian NSE stocks."""
+    """Analyst consensus + price targets.
+    Primary: yfinance info fields (fast, free).
+    Fallback: FMP price-target + analyst-estimates endpoints (Indian brokers
+    often publish there even when Yahoo Finance has no coverage)."""
+    lines: list[str] = []
+
+    # ── Primary: yfinance ────────────────────────────────────────────────────
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info
-        lines = []
 
-        # Analyst consensus (almost always available)
-        rec_key  = info.get("recommendationKey", "")
+        rec_key    = info.get("recommendationKey", "")
         n_analysts = info.get("numberOfAnalystOpinions")
         if rec_key or n_analysts:
             label = rec_key.replace("_", " ").title() if rec_key else "N/A"
             lines.append(f"Analyst Consensus: {label}"
                          + (f" ({n_analysts} analysts)" if n_analysts else ""))
 
-        # Price targets
         target_mean = info.get("targetMeanPrice")
         target_hi   = info.get("targetHighPrice")
         target_lo   = info.get("targetLowPrice")
@@ -2304,7 +2287,6 @@ def _fetch_yf_upgrades_context(ticker: str) -> str:
                          if target_hi and target_lo else
                          f"Consensus Target: Rs{target_mean:,.0f} ({upside:+.1f}%)")
 
-        # Recent upgrades/downgrades (when available)
         from datetime import datetime, timedelta
         try:
             ud = yf.Ticker(ticker).upgrades_downgrades
@@ -2323,10 +2305,52 @@ def _fetch_yf_upgrades_context(ticker: str) -> str:
                         lines.append(line)
         except Exception:
             pass
-
-        return "\n".join(lines) if lines else ""
     except Exception:
-        return ""
+        pass
+
+    if lines:
+        return "\n".join(lines)
+
+    # ── Fallback: FMP price targets + analyst estimates ───────────────────────
+    try:
+        from fmp import get_price_targets, get_analyst_estimates
+        fmp_lines: list[str] = []
+
+        targets = get_price_targets(ticker, limit=5)
+        if targets:
+            fmp_lines.append("Analyst Price Targets (FMP):")
+            for t in targets[:5]:
+                analyst  = t.get("analystName") or t.get("analyst") or "?"
+                company  = t.get("analystCompany") or ""
+                pt       = t.get("priceTarget")
+                date     = (t.get("publishedDate") or "")[:10]
+                pt_str   = f"Rs{float(pt):,.0f}" if pt else "N/A"
+                fmp_lines.append(f"  {date} | {analyst} ({company}) → {pt_str}")
+
+        estimates = get_analyst_estimates(ticker, limit=2)
+        if estimates:
+            e = estimates[0]
+            rev_lo  = e.get("revenueEstimatedLow")
+            rev_hi  = e.get("revenueEstimatedHigh")
+            rev_avg = e.get("revenueEstimatedAvg")
+            eps_avg = e.get("estimatedEpsAvg")
+            period  = e.get("date", "")
+            parts   = []
+            if rev_avg:
+                parts.append(f"Rev est Rs{float(rev_avg)/1e7:,.0f} Cr"
+                             + (f" [Rs{float(rev_lo)/1e7:,.0f}–Rs{float(rev_hi)/1e7:,.0f} Cr]"
+                                if rev_lo and rev_hi else ""))
+            if eps_avg:
+                parts.append(f"EPS est Rs{float(eps_avg):,.2f}")
+            if parts:
+                fmp_lines.append(f"Analyst Estimates ({period}): " + " | ".join(parts))
+
+        if fmp_lines:
+            return "\n".join(fmp_lines)
+    except Exception:
+        pass
+
+    return ""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -3002,11 +3026,11 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     src_col8, src_col9, src_col10, _ = st.columns(4)
 
     with src_col8:
-        with st.spinner("yfinance: broker actions…"):
+        with st.spinner("yfinance / FMP: analyst targets…"):
             upgrades_ctx = _fetch_yf_upgrades_context(ticker)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#F0B429"};">'
-            f'{"✅ Analyst consensus + targets loaded" if upgrades_ctx else "⚠️ Analyst data unavailable"}</div>',
+            f'{"✅ Analyst targets loaded" if upgrades_ctx else "⚠️ Analyst data unavailable"}</div>',
             unsafe_allow_html=True,
         )
 

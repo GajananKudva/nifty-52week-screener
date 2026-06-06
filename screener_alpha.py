@@ -274,7 +274,11 @@ def build_yfinance_context(symbol: str) -> str:
     except Exception:
         return ""
 
-    if not info or info.get("regularMarketPrice") is None and info.get("currentPrice") is None:
+    # Bail only if yfinance returned a clearly empty/invalid response.
+    # Do NOT require price fields — newer yfinance versions often omit
+    # regularMarketPrice/currentPrice for NSE tickers but still return
+    # analyst targets, EPS, margins, etc.
+    if not info or len(info) < 5:
         return ""
 
     lines = [f"=== yfinance Fundamentals: {clean} ==="]
