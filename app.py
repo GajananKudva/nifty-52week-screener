@@ -2220,7 +2220,7 @@ def _fetch_index_tickers(universe: str) -> list[str]:
         return []
 
 
-@st.cache_data(ttl=3600, show_spinner=False)    # 1h cache — yfinance is free but rate-sensitive
+@st.cache_data(ttl=300, show_spinner=False)    # 5 min — allows fixes to take effect promptly
 def _cached_yfinance_context(ticker: str) -> str:
     """Cached wrapper for build_yfinance_context. Prevents repeated calls on spotlight re-renders."""
     return build_yfinance_context(ticker) if _SCREENER_OK else ""
@@ -2255,7 +2255,7 @@ def _fetch_yf_company_context(ticker: str) -> str:
         return ""
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _fetch_yf_upgrades_context(ticker: str) -> str:
     """Analyst consensus + price targets.
     Primary: yfinance info fields (fast, free).
@@ -2347,6 +2347,32 @@ def _fetch_yf_upgrades_context(ticker: str) -> str:
 
         if fmp_lines:
             return "\n".join(fmp_lines)
+    except Exception:
+        pass
+
+    # ── Last resort: Screener.in pros/cons as qualitative analyst proxy ────────
+    # Indian brokers rarely publish to Yahoo/FMP, but Screener.in has
+    # community-curated pros/cons that serve as a qualitative analyst signal.
+    try:
+        if _SCREENER_OK:
+            from screener_alpha import build_screener_context
+            sc = build_screener_context(ticker)
+            if sc:
+                pros, cons = [], []
+                for line in sc.splitlines():
+                    if line.startswith("Pros:"):
+                        pros = [p.strip() for p in line[5:].split(";") if p.strip()]
+                    elif line.startswith("Cons:"):
+                        cons = [c.strip() for c in line[5:].split(";") if c.strip()]
+                sc_lines: list[str] = []
+                if pros:
+                    sc_lines.append("Analyst / Screener Positives:")
+                    sc_lines.extend(f"  + {p}" for p in pros[:4])
+                if cons:
+                    sc_lines.append("Analyst / Screener Risks:")
+                    sc_lines.extend(f"  - {c}" for c in cons[:4])
+                if sc_lines:
+                    return "\n".join(sc_lines)
     except Exception:
         pass
 

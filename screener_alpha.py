@@ -300,6 +300,22 @@ def build_yfinance_context(symbol: str) -> str:
         except Exception:
             return ""
 
+    # ── Always-available fields (sector, 52W range, market cap) ─────────────
+    # These are almost always present even when financial/analyst data is missing.
+    meta_parts = []
+    if info.get("sector"):      meta_parts.append(f"Sector={info['sector']}")
+    if info.get("industry"):    meta_parts.append(f"Industry={info['industry']}")
+    if info.get("exchange"):    meta_parts.append(f"Exchange={info['exchange']}")
+    w52hi = info.get("fiftyTwoWeekHigh")
+    w52lo = info.get("fiftyTwoWeekLow")
+    if w52hi and w52lo:
+        meta_parts.append(f"52W=[Rs{w52lo:,.0f}–Rs{w52hi:,.0f}]")
+    avg_vol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
+    if avg_vol:
+        meta_parts.append(f"AvgVol={int(avg_vol):,}")
+    if meta_parts:
+        lines.append("Profile: " + " | ".join(meta_parts))
+
     # ── Analyst consensus ─────────────────────────────────────────────────────
     target_mean   = info.get("targetMeanPrice")
     target_high   = info.get("targetHighPrice")
@@ -387,4 +403,5 @@ def build_yfinance_context(symbol: str) -> str:
         lines.append(f"Business: {_trim(desc, 350)}")
 
     result = "\n".join(lines)
-    return result if len(result) > 80 else ""
+    # Return if we have more than just the header line
+    return result if len(lines) > 1 else ""
