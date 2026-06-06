@@ -141,6 +141,7 @@ except Exception:
 
 _TAVILY_KEY   = _secret("TAVILY_API_KEY", "")
 _NEWSAPI_KEY  = _secret("NEWSAPI_KEY", "")
+_EXA_KEY      = _secret("EXA_API_KEY", "")
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1481,12 +1482,48 @@ def _fetch_all_news_context(ticker: str, company: str) -> str:
             pass
         return items
 
-    # ── Run all 3 in parallel ─────────────────────────────────────────────────
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    # ── 4. Exa neural search ──────────────────────────────────────────────────
+    def _exa_news():
+        items = []
+        if not _EXA_KEY:
+            return items
+        try:
+            from datetime import timezone as _tz, timedelta as _td
+            since = (datetime.now(_tz.utc) - timedelta(days=cutoff_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            payload = {
+                "query":              f"{company} {clean} NSE India stock earnings results news",
+                "numResults":         8,
+                "type":               "neural",
+                "startPublishedDate": since,
+                "contents": {
+                    "highlights": {"numSentences": 2, "highlightsPerUrl": 1},
+                },
+            }
+            r = _req.post("https://api.exa.ai/search", json=payload,
+                          headers={"x-api-key": _EXA_KEY, "Content-Type": "application/json"},
+                          timeout=12)
+            if r.status_code == 200:
+                for result in r.json().get("results", []):
+                    title  = (result.get("title") or "")[:150]
+                    pub    = (result.get("publishedDate") or "")[:10]
+                    url    = result.get("url", "")
+                    src    = url.split("/")[2].replace("www.", "") if url else "Exa"
+                    hi     = result.get("highlights") or []
+                    snip   = " … ".join(hi[:1]) if hi else ""
+                    if title:
+                        items.append({"date": pub, "source": f"Exa/{src}",
+                                      "title": title, "snippet": snip})
+        except Exception:
+            pass
+        return items
+
+    # ── Run all 4 in parallel ─────────────────────────────────────────────────
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {
             pool.submit(_yf_news):      "yfinance",
             pool.submit(_tavily_news):  "tavily",
             pool.submit(_newsapi_news): "newsapi",
+            pool.submit(_exa_news):     "exa",
         }
         for f in as_completed(futures, timeout=15):
             try:
@@ -1752,6 +1789,7 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
                   screener_context: str = "",
                   alpha_vantage_context: str = "",
                   tavily_context: str = "",
+                  exa_context: str = "",
                   upgrades_context: str = "",
                   earnings_surprise_context: str = "",
                   bse_announcements_context: str = "",
@@ -1778,9 +1816,15 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     def _trim(text: str, max_chars: int) -> str:
         return text[:max_chars] + "\n[...truncated]" if len(text) > max_chars else text
 
-    # Tavily takes priority over Google News (richer content); merge both
+    # Exa (neural) + Tavily + Google News merged — Exa gets most chars as it's highest quality
     combined_news = ""
-    if tavily_context:
+    if exa_context:
+        combined_news = _trim(exa_context, 4000)          # Exa neural search first
+        if tavily_context:
+            combined_news += "\n\n--- Tavily ---\n" + _trim(tavily_context, 2000)
+        if google_news_context:
+            combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 600)
+    elif tavily_context:
         combined_news = _trim(tavily_context, 3500)
         if google_news_context:
             combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 800)
@@ -1807,8 +1851,12 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     _action_word = "high" if is_hi else "low"
     _risk_label  = "rally" if is_hi else "recovery"
 
+    _today_str = datetime.now().strftime("%B %d, %Y")
+
     prompt = f"""You are a senior equity research analyst at a top institutional fund.
 Write a Stock Catalyst Analysis for {company} ({ticker}), which is near its 52-week {_action_word}.
+
+TODAY'S DATE: {_today_str}  ← use this when deciding what is "upcoming" vs already past.
 
 MARKET DATA
   Current Price : Rs{price:,.2f}
@@ -1866,7 +1914,7 @@ Rules:
 - impact_pct on each catalyst must sum to roughly the total move from the opposite extreme
 - primary_catalyst must be the single most impactful item — not a generic statement
 - catalyst_timeline: 3-5 events in chronological order showing the causal chain
-- watch_next: 2-3 specific upcoming events (earnings date, policy meeting, product launch)
+- watch_next: 2-3 specific FUTURE events only — all dates must be AFTER {_today_str}. Do not list events that have already occurred.
 - Each headline must include at least one specific figure or date
 - Write with conviction — avoid hedging language
 - sources array should list unique sources referenced"""
@@ -2224,6 +2272,96 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
 
     except Exception:
         return ""
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
+    """
+    Exa AI neural search — far more semantically accurate than keyword search.
+    Runs TWO queries per call:
+      1. Recent news: company-specific news from the last 60 days
+      2. Research:    analyst reports, earnings analysis, price targets (last 90 days)
+    Returns a rich context block for the AI prompt.
+    """
+    if not api_key:
+        return ""
+
+    import requests as _req
+    from datetime import timezone as _tz, timedelta as _td
+
+    clean = ticker.replace(".NS", "").replace(".BO", "")
+    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    cutoff_news     = (datetime.now(_tz.utc) - _td(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_research = (datetime.now(_tz.utc) - _td(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    _INDIAN_DOMAINS = [
+        "economictimes.indiatimes.com", "moneycontrol.com",
+        "livemint.com", "business-standard.com",
+        "financialexpress.com", "ndtvprofit.com",
+        "cnbctv18.com", "zeebiz.com",
+        "bseindia.com", "nseindia.com",
+        "reuters.com", "bloomberg.com",
+    ]
+
+    lines: list[str] = []
+
+    def _exa_search(query: str, since: str, num: int = 6, domains: list | None = None) -> list[dict]:
+        payload: dict = {
+            "query":              query,
+            "numResults":         num,
+            "type":               "neural",
+            "startPublishedDate": since,
+            "contents": {
+                "text":       {"maxCharacters": 800},
+                "highlights": {"numSentences": 3, "highlightsPerUrl": 2},
+            },
+        }
+        if domains:
+            payload["includeDomains"] = domains
+        try:
+            r = _req.post("https://api.exa.ai/search", json=payload,
+                          headers=headers, timeout=15)
+            if r.status_code == 200:
+                return r.json().get("results", [])
+        except Exception:
+            pass
+        return []
+
+    # ── Query 1: Recent company news ──────────────────────────────────────────
+    news_q = f"{company} {clean} NSE India stock news earnings results announcement"
+    news_results = _exa_search(news_q, cutoff_news, num=6, domains=_INDIAN_DOMAINS)
+    if news_results:
+        lines.append(f"=== Exa Neural Search: {company} — Recent News ===")
+        for r in news_results:
+            title    = (r.get("title") or "").strip()
+            url      = r.get("url", "")
+            pub      = (r.get("publishedDate") or "")[:10]
+            source   = url.split("/")[2].replace("www.", "") if url else "web"
+            # Use highlights if available, else fall back to text snippet
+            highlights = r.get("highlights") or []
+            snippet = " … ".join(highlights[:2]) if highlights else (r.get("text") or "")[:350]
+            snippet = snippet.replace("\n", " ").strip()
+            if title:
+                lines.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+
+    # ── Query 2: Analyst research + price targets ─────────────────────────────
+    research_q = (f"{company} {clean} India analyst price target rating "
+                  f"earnings estimate revenue profit outlook")
+    research_results = _exa_search(research_q, cutoff_research, num=5)
+    if research_results:
+        lines.append(f"\n=== Exa Neural Search: {company} — Analyst Research ===")
+        for r in research_results:
+            title    = (r.get("title") or "").strip()
+            url      = r.get("url", "")
+            pub      = (r.get("publishedDate") or "")[:10]
+            source   = url.split("/")[2].replace("www.", "") if url else "web"
+            highlights = r.get("highlights") or []
+            snippet = " … ".join(highlights[:2]) if highlights else (r.get("text") or "")[:350]
+            snippet = snippet.replace("\n", " ").strip()
+            if title:
+                lines.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+
+    return "\n\n".join(lines) if lines else ""
 
 
 @st.cache_data(ttl=3600, show_spinner=False)   # 1h — NSE CSV changes rarely
@@ -3077,11 +3215,17 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         )
 
     with src_col7:
-        with st.spinner("Tavily: searching latest news…"):
+        with st.spinner("Tavily / Exa: searching latest news…"):
             tavily_ctx = _fetch_tavily_context(name, ticker, _TAVILY_KEY) if _TAVILY_KEY else ""
+            exa_ctx    = _fetch_exa_context(name, ticker, _EXA_KEY) if _EXA_KEY else ""
+        web_ctx_ok = bool(tavily_ctx or exa_ctx)
+        web_label  = ("✅ Exa + Tavily search loaded" if (exa_ctx and tavily_ctx)
+                      else "✅ Exa neural search loaded" if exa_ctx
+                      else "✅ Tavily web search loaded" if tavily_ctx
+                      else "⚠️ Web search unavailable")
         st.markdown(
-            f'<div style="font-size:11px;color:{"#3FB950" if tavily_ctx else "#F0B429"};">'
-            f'{"✅ Tavily web search loaded" if tavily_ctx else "⚠️ Tavily unavailable"}</div>',
+            f'<div style="font-size:11px;color:{"#3FB950" if web_ctx_ok else "#F0B429"};">'
+            f'{web_label}</div>',
             unsafe_allow_html=True,
         )
 
@@ -3151,6 +3295,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             screener_context=screener_ctx,
             alpha_vantage_context=av_ctx,
             tavily_context=tavily_ctx,
+            exa_context=exa_ctx,
             upgrades_context=upgrades_ctx,
             earnings_surprise_context=earnings_surprise_ctx,
             bse_announcements_context=bse_ctx,
@@ -3338,7 +3483,22 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         )
 
     # ── What to Watch Next (Idea 5) ───────────────────────────────────────────
-    watch_next = analysis.get("watch_next", [])
+    watch_next_raw = analysis.get("watch_next", [])
+
+    # Drop items whose date is clearly in the past.
+    def _is_future_event(w: dict) -> bool:
+        date_str = w.get("date", "").strip()
+        if not date_str:
+            return True  # no date → keep
+        try:
+            from dateutil import parser as _dp
+            parsed = _dp.parse(date_str, default=datetime(datetime.now().year, 12, 31))
+            return parsed.date() >= datetime.now().date()
+        except Exception:
+            return True  # unparseable → keep to be safe
+
+    watch_next = [w for w in watch_next_raw if _is_future_event(w)]
+
     if watch_next:
         st.markdown(
             '<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
