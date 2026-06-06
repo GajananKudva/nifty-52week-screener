@@ -1816,15 +1816,15 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     def _trim(text: str, max_chars: int) -> str:
         return text[:max_chars] + "\n[...truncated]" if len(text) > max_chars else text
 
-    # Exa (neural) + Tavily + Google News merged — Exa gets most chars as it's highest quality
+    # Exa is PRIMARY (neural search, highest quality) — Tavily is supplementary fallback only
     combined_news = ""
     if exa_context:
-        combined_news = _trim(exa_context, 4000)          # Exa neural search first
+        combined_news = _trim(exa_context, 5500)          # Exa gets the lion's share
         if tavily_context:
-            combined_news += "\n\n--- Tavily ---\n" + _trim(tavily_context, 2000)
+            combined_news += "\n\n--- Supplementary (Tavily) ---\n" + _trim(tavily_context, 1000)
         if google_news_context:
-            combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 600)
-    elif tavily_context:
+            combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 400)
+    elif tavily_context:                                  # Tavily only if Exa unavailable
         combined_news = _trim(tavily_context, 3500)
         if google_news_context:
             combined_news += "\n\n--- Google News ---\n" + _trim(google_news_context, 800)
@@ -2277,11 +2277,12 @@ def _fetch_tavily_context(company: str, ticker: str, api_key: str) -> str:
 @st.cache_data(ttl=1800, show_spinner=False)
 def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
     """
-    Exa AI neural search — far more semantically accurate than keyword search.
-    Runs TWO queries per call:
-      1. Recent news: company-specific news from the last 60 days
-      2. Research:    analyst reports, earnings analysis, price targets (last 90 days)
-    Returns a rich context block for the AI prompt.
+    Exa AI neural search — PRIMARY web research source for the detailed analysis.
+    Runs THREE queries per call:
+      1. Recent news:     company-specific news from the last 45 days (Indian outlets first)
+      2. Analyst research: price targets, ratings, earnings estimates (last 90 days)
+      3. Corporate events: earnings calls, results, announcements, filings (last 60 days)
+    Returns a rich context block for the AI prompt. Tavily is supplementary only.
     """
     if not api_key:
         return ""
@@ -2291,29 +2292,30 @@ def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
 
     clean = ticker.replace(".NS", "").replace(".BO", "")
     headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-    cutoff_news     = (datetime.now(_tz.utc) - _td(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    cutoff_research = (datetime.now(_tz.utc) - _td(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_45d  = (datetime.now(_tz.utc) - _td(days=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_60d  = (datetime.now(_tz.utc) - _td(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_90d  = (datetime.now(_tz.utc) - _td(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     _INDIAN_DOMAINS = [
         "economictimes.indiatimes.com", "moneycontrol.com",
         "livemint.com", "business-standard.com",
         "financialexpress.com", "ndtvprofit.com",
-        "cnbctv18.com", "zeebiz.com",
+        "cnbctv18.com", "zeebiz.com", "thehindubuisessline.com",
         "bseindia.com", "nseindia.com",
         "reuters.com", "bloomberg.com",
     ]
 
     lines: list[str] = []
 
-    def _exa_search(query: str, since: str, num: int = 6, domains: list | None = None) -> list[dict]:
+    def _exa_search(query: str, since: str, num: int = 8, domains: list | None = None) -> list[dict]:
         payload: dict = {
             "query":              query,
             "numResults":         num,
             "type":               "neural",
             "startPublishedDate": since,
             "contents": {
-                "text":       {"maxCharacters": 800},
-                "highlights": {"numSentences": 3, "highlightsPerUrl": 2},
+                "text":       {"maxCharacters": 600},
+                "highlights": {"numSentences": 3, "highlightsPerUrl": 3},
             },
         }
         if domains:
@@ -2327,39 +2329,43 @@ def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
             pass
         return []
 
-    # ── Query 1: Recent company news ──────────────────────────────────────────
-    news_q = f"{company} {clean} NSE India stock news earnings results announcement"
-    news_results = _exa_search(news_q, cutoff_news, num=6, domains=_INDIAN_DOMAINS)
-    if news_results:
-        lines.append(f"=== Exa Neural Search: {company} — Recent News ===")
-        for r in news_results:
-            title    = (r.get("title") or "").strip()
-            url      = r.get("url", "")
-            pub      = (r.get("publishedDate") or "")[:10]
-            source   = url.split("/")[2].replace("www.", "") if url else "web"
-            # Use highlights if available, else fall back to text snippet
+    def _fmt_results(results: list[dict]) -> list[str]:
+        out = []
+        for r in results:
+            title      = (r.get("title") or "").strip()
+            url        = r.get("url", "")
+            pub        = (r.get("publishedDate") or "")[:10]
+            source     = url.split("/")[2].replace("www.", "") if url else "web"
             highlights = r.get("highlights") or []
-            snippet = " … ".join(highlights[:2]) if highlights else (r.get("text") or "")[:350]
-            snippet = snippet.replace("\n", " ").strip()
+            snippet    = " … ".join(highlights[:3]) if highlights else (r.get("text") or "")[:400]
+            snippet    = snippet.replace("\n", " ").strip()
             if title:
-                lines.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+                out.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+        return out
 
-    # ── Query 2: Analyst research + price targets ─────────────────────────────
-    research_q = (f"{company} {clean} India analyst price target rating "
-                  f"earnings estimate revenue profit outlook")
-    research_results = _exa_search(research_q, cutoff_research, num=5)
+    # ── Query 1: Recent company news (Indian outlets, 45 days) ────────────────
+    news_q = (f"{company} {clean} NSE India latest news update "
+              f"earnings revenue profit quarterly results")
+    news_results = _exa_search(news_q, cutoff_45d, num=8, domains=_INDIAN_DOMAINS)
+    if news_results:
+        lines.append(f"=== Exa: {company} — Recent News (Primary) ===")
+        lines.extend(_fmt_results(news_results))
+
+    # ── Query 2: Analyst research + price targets (90 days, open web) ─────────
+    research_q = (f"{company} {clean} India stock analyst buy sell hold "
+                  f"price target upgrade downgrade rating EPS estimate forecast")
+    research_results = _exa_search(research_q, cutoff_90d, num=6)
     if research_results:
-        lines.append(f"\n=== Exa Neural Search: {company} — Analyst Research ===")
-        for r in research_results:
-            title    = (r.get("title") or "").strip()
-            url      = r.get("url", "")
-            pub      = (r.get("publishedDate") or "")[:10]
-            source   = url.split("/")[2].replace("www.", "") if url else "web"
-            highlights = r.get("highlights") or []
-            snippet = " … ".join(highlights[:2]) if highlights else (r.get("text") or "")[:350]
-            snippet = snippet.replace("\n", " ").strip()
-            if title:
-                lines.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+        lines.append(f"\n=== Exa: {company} — Analyst Research & Price Targets ===")
+        lines.extend(_fmt_results(research_results))
+
+    # ── Query 3: Corporate events — earnings calls, filings, announcements ─────
+    events_q = (f"{company} {clean} India quarterly earnings call results "
+                f"dividend board meeting order win acquisition expansion 2025 2026")
+    events_results = _exa_search(events_q, cutoff_60d, num=5)
+    if events_results:
+        lines.append(f"\n=== Exa: {company} — Corporate Events & Announcements ===")
+        lines.extend(_fmt_results(events_results))
 
     return "\n\n".join(lines) if lines else ""
 
