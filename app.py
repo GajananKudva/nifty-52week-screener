@@ -581,7 +581,8 @@ _TAPE_MAP: dict[str, str] = {
     "INFY.NS":       "INFOSYS",
     "ICICIBANK.NS":  "ICICIBANK",
     "BHARTIARTL.NS": "AIRTEL",
-    "TATAMOTORS.NS": "TATA MOTORS",
+    "TMCV.NS":  "TATA MOTORS CV",
+    "TMPV.NS":  "TATA MOTORS PV",
     "WIPRO.NS":      "WIPRO",
     "BAJFINANCE.NS": "BAJAJ FIN",
     "MARUTI.NS":     "MARUTI",
@@ -593,7 +594,7 @@ _NIFTY_50: list[str] = [
     "BAJFINANCE.NS","KOTAKBANK.NS","HCLTECH.NS",   "MARUTI.NS",    "AXISBANK.NS",
     "ASIANPAINT.NS","SUNPHARMA.NS","TITAN.NS",     "WIPRO.NS",     "ULTRACEMCO.NS",
     "ONGC.NS",     "NTPC.NS",      "JSWSTEEL.NS",  "POWERGRID.NS", "M&M.NS",
-    "BAJAJFINSV.NS","TATAMOTORS.NS","ADANIENT.NS", "ADANIPORTS.NS","TATASTEEL.NS",
+    "BAJAJFINSV.NS","TMCV.NS",  "TMPV.NS",   "ADANIENT.NS", "ADANIPORTS.NS","TATASTEEL.NS",
     "COALINDIA.NS","NESTLEIND.NS", "DIVISLAB.NS",  "CIPLA.NS",     "DRREDDY.NS",
     "HINDALCO.NS", "TECHM.NS",     "GRASIM.NS",    "APOLLOHOSP.NS","TATACONSUM.NS",
     "INDUSINDBK.NS","BAJAJ-AUTO.NS","HEROMOTOCO.NS","EICHERMOT.NS","BRITANNIA.NS",
@@ -604,6 +605,7 @@ _NIFTY_50: list[str] = [
 # ══════════════════════════════════════════════════════════════════════════════
 # 4.  MOCK DATA  (fallback when API rate-limited or engine unavailable)
 # ══════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=120, show_spinner=False)
 def _mock_index_data() -> dict:
     """Live fallback via yfinance — no hardcoded prices."""
     try:
@@ -639,6 +641,7 @@ def _mock_index_data() -> dict:
     }
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def _mock_tape_data() -> list[dict]:
     """Live fallback via yfinance — no hardcoded prices."""
     _tickers = [
@@ -650,7 +653,8 @@ def _mock_tape_data() -> list[dict]:
         ("INFY.NS",     "INFOSYS"),
         ("ICICIBANK.NS","ICICIBANK"),
         ("BHARTIARTL.NS","AIRTEL"),
-        ("TATAMOTORS.NS", "TATA MOTORS"),
+        ("TMCV.NS",  "TATA MOTORS CV"),
+        ("TMPV.NS",  "TATA MOTORS PV"),
         ("WIPRO.NS",    "WIPRO"),
         ("BAJFINANCE.NS","BAJAJ FIN"),
         ("MARUTI.NS",   "MARUTI"),
@@ -1904,44 +1908,50 @@ RULES (violations will make the output useless):
 - sources: list only unique publications actually referenced"""
 
     last_err = ""
-    try:
-        client = _OpenAI(
-            api_key=_OPENAI_KEY,
-            base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
-        )
-        kwargs: dict = {"temperature": 0.1}   # low temp = more factual, less hallucination
-        # Reasoning/thinking models (DeepSeek R1, QwQ) do NOT support
-        # response_format JSON mode — only enable it for standard models
-        _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
-        if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
-            kwargs["response_format"] = {"type": "json_object"}
-        response = client.chat.completions.create(
-            model=_OPENAI_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            **kwargs,
-        )
-        raw = response.choices[0].message.content.strip()
-        # Strip DeepSeek R1 internal thinking tags
-        if "<think>" in raw:
-            import re as _re
-            raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
-        # Strip markdown code fences
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.rstrip("`")
-        # Find JSON object in response even if there's surrounding text
-        if not raw.strip().startswith("{"):
-            import re as _re
-            m = _re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                raw = m.group(0)
-        result = json.loads(raw.strip())
-        st.session_state[cache_key] = result
-        return result
-    except Exception as e:
-        last_err = str(e)
+    import time as _time
+    client = _OpenAI(
+        api_key=_OPENAI_KEY,
+        base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
+    )
+    kwargs: dict = {"temperature": 0.1}
+    _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
+    if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
+        kwargs["response_format"] = {"type": "json_object"}
+
+    # Retry with exponential backoff on rate-limit (429) errors
+    import re as _re
+    for _attempt in range(3):
+        try:
+            response = client.chat.completions.create(
+                model=_OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs,
+            )
+            raw = response.choices[0].message.content.strip()
+            # Strip DeepSeek R1 thinking tags
+            if "<think>" in raw:
+                raw = _re.sub(r"<think>.*?</think>", "", raw, flags=_re.DOTALL).strip()
+            # Strip markdown code fences
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+                raw = raw.rstrip("`")
+            # Extract JSON object if surrounded by text
+            if not raw.strip().startswith("{"):
+                m = _re.search(r"\{[\s\S]*\}", raw)
+                if m:
+                    raw = m.group(0)
+            result = json.loads(raw.strip())
+            st.session_state[cache_key] = result
+            return result
+        except Exception as e:
+            last_err = str(e)
+            if "429" in last_err or "rate limit" in last_err.lower():
+                wait = 5 * (2 ** _attempt)   # 5s → 10s → 20s
+                _time.sleep(wait)
+            else:
+                break
 
     return _fallback_deep_dive(ticker, company, sector, signal,
                                price, high52, low52, pct_from_high,
@@ -2743,8 +2753,9 @@ _SECTOR_PEERS: dict = {
     "TCS.NS":         ["INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
     "INFY.NS":        ["TCS.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"],
     "RELIANCE.NS":    ["ONGC.NS", "BPCL.NS", "IOC.NS", "GAIL.NS"],
-    "TATAMOTORS.NS":  ["MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
-    "MARUTI.NS":      ["TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
+    "TMCV.NS":  ["TMPV.NS", "M&M.NS", "ASHOKLEY.NS", "EICHERMOT.NS"],
+    "TMPV.NS":  ["TMCV.NS", "MARUTI.NS", "M&M.NS", "EICHERMOT.NS"],
+    "MARUTI.NS":["TMPV.NS", "M&M.NS", "BAJAJ-AUTO.NS", "EICHERMOT.NS"],
     "SUNPHARMA.NS":   ["DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "LUPIN.NS"],
     "DRREDDY.NS":     ["SUNPHARMA.NS", "CIPLA.NS", "DIVISLAB.NS", "LUPIN.NS"],
     "WIPRO.NS":       ["TCS.NS", "INFY.NS", "HCLTECH.NS", "TECHM.NS"],
