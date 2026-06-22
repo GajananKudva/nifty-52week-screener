@@ -143,6 +143,10 @@ _TAVILY_KEY   = _secret("TAVILY_API_KEY", "")
 _NEWSAPI_KEY  = _secret("NEWSAPI_KEY", "")
 _EXA_KEY      = _secret("EXA_API_KEY", "")
 
+# Optional second LLM pass that re-checks entity isolation + dates. Default OFF
+# (it costs an extra call and can hit rate limits). Set SELF_CRITIQUE=on to enable.
+_SELF_CRITIQUE = _secret("SELF_CRITIQUE", "off").lower() in ("1", "true", "yes", "on")
+
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
     from engine import DataEngine, ScreenerConfig
@@ -2005,6 +2009,50 @@ RULES (violations will make the output useless):
                 _pc = result["primary_catalyst"]
                 _pc["url"] = _clean_url(_pc.get("url", ""))
 
+            # ── Deterministic post-processing: verify dates vs FMP filings,
+            #    drop foreign-entity catalysts, recompute confidence ──────────
+            try:
+                import analysis_utils as _au
+                result = _au.post_process(result, company, _clean_ticker, fmp_context)
+
+                # ── Conditional self-critique pass (#6) — only when the
+                #    deterministic checks found problems AND it's enabled.
+                #    Default OFF to avoid extra latency / 429 rate limits. ────
+                if _SELF_CRITIQUE and _au.needs_critique(result):
+                    import json as _json2
+                    _crit_user = (
+                        "The draft JSON below FAILED automated checks (wrong dates "
+                        "and/or unrelated companies). Fix ONLY those problems:\n"
+                        f"- Use the real EVENT dates from the verified data for {company}.\n"
+                        f"- Remove any catalyst/timeline item not about {company} "
+                        f"(NSE: {_clean_ticker}).\n"
+                        "- Keep the exact same JSON schema and all other content.\n\n"
+                        "VERIFIED DATA:\n" + (fmp_context or "")[:1500] + "\n\n"
+                        "DRAFT JSON:\n" + _json2.dumps(result)[:6000] + "\n\n"
+                        "Return ONLY the corrected JSON."
+                    )
+                    try:
+                        _cr = client.chat.completions.create(
+                            model=_OPENAI_MODEL,
+                            messages=[{"role": "system", "content": system_prompt},
+                                      {"role": "user",   "content": _crit_user}],
+                            **kwargs,
+                        )
+                        _raw2 = _cr.choices[0].message.content.strip()
+                        _m2 = _re.search(r"\{[\s\S]*\}", _raw2)
+                        if _m2:
+                            _fixed = _json2.loads(_m2.group(0))
+                            if isinstance(_fixed, dict) and _fixed.get("catalysts") is not None:
+                                for _c in _fixed.get("catalysts", []) or []:
+                                    if isinstance(_c, dict):
+                                        _c["url"] = _clean_url(_c.get("url", ""))
+                                result = _au.post_process(_fixed, company,
+                                                          _clean_ticker, fmp_context)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
             st.session_state[cache_key] = result
             return result
         except Exception as e:
@@ -3527,6 +3575,21 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     primary = analysis.get("primary_catalyst", {})
     if _is_stale_news:
         # Demote stale/thin news — don't present old articles as today's trigger.
+        # Substantiate the 'momentum / sector-driven' claim with real breadth data.
+        _breadth = ""
+        try:
+            import analysis_utils as _au
+            _breadth = _au.sector_breadth(
+                row.get("sector", ""), ticker,
+                st.session_state.get("_last_highs"),
+                st.session_state.get("_last_lows"), is_hi,
+            )
+        except Exception:
+            _breadth = ""
+        _breadth_html = (
+            f'<div style="font-size:13px;color:#8B949E;line-height:1.6;margin-top:8px;">'
+            f'📊 {_breadth}</div>' if _breadth else ""
+        )
         st.markdown(
             f'<div style="background:#161B22;border:1px dashed #6E7681;'
             f'border-radius:10px;padding:16px 22px;margin:8px 0 16px;">'
@@ -3536,6 +3599,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'No fresh company-specific catalyst found in the last 7 days — this {("high" if is_hi else "low")} '
             f'is likely driven by momentum, sector rotation, or broad-market flows rather than a single news event. '
             f'The items below are older context, not the trigger.</div>'
+            f'{_breadth_html}'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -3581,6 +3645,55 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Business Model</div>'
             f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{business_model}</div>'
             f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Reported Quarterly Results (FMP ground truth) ─────────────────────────
+    try:
+        from fmp import get_quarterly_summary
+        _qs = get_quarterly_summary(ticker, limit=5) if _FMP_OK else []
+    except Exception:
+        _qs = []
+    if _qs:
+        def _cr(v):
+            try:
+                return f"Rs {float(v)/1e7:,.0f} Cr"
+            except Exception:
+                return "—"
+        _rows = ""
+        for q in _qs:
+            beat = q.get("beat_pct")
+            if beat is None:
+                beat_html = '<span style="color:#6E7681;">—</span>'
+            else:
+                _bc = "#3FB950" if beat >= 0 else "#F85149"
+                beat_html = f'<span style="color:{_bc};">{beat:+.1f}%</span>'
+            eps_a = q.get("eps_actual")
+            eps_txt = f"Rs {float(eps_a):,.2f}" if eps_a not in (None, "") else "—"
+            _rows += (
+                f'<tr>'
+                f'<td style="padding:6px 10px;color:#C9D1D9;">{q.get("date","")}</td>'
+                f'<td style="padding:6px 10px;text-align:right;color:#C9D1D9;">{_cr(q.get("revenue"))}</td>'
+                f'<td style="padding:6px 10px;text-align:right;color:#C9D1D9;">{_cr(q.get("net_income"))}</td>'
+                f'<td style="padding:6px 10px;text-align:right;color:#C9D1D9;">{eps_txt}</td>'
+                f'<td style="padding:6px 10px;text-align:right;">{beat_html}</td>'
+                f'</tr>'
+            )
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:8px;padding:14px 18px;margin:8px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:10px;">'
+            f'&#9670; Reported Quarterly Results <span style="color:#6E7681;font-weight:400;'
+            f'text-transform:none;letter-spacing:0;">(verified · Financial Modeling Prep)</span></div>'
+            f'<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+            f'<tr style="color:#6E7681;border-bottom:1px solid #30363D;">'
+            f'<th style="padding:6px 10px;text-align:left;font-weight:600;">Quarter end</th>'
+            f'<th style="padding:6px 10px;text-align:right;font-weight:600;">Revenue</th>'
+            f'<th style="padding:6px 10px;text-align:right;font-weight:600;">Net income</th>'
+            f'<th style="padding:6px 10px;text-align:right;font-weight:600;">EPS</th>'
+            f'<th style="padding:6px 10px;text-align:right;font-weight:600;">vs est</th>'
+            f'</tr>{_rows}</table></div>',
             unsafe_allow_html=True,
         )
 
@@ -3959,6 +4072,10 @@ def main():
     lows_df  = results.get("lows",  pd.DataFrame())
     errors   = results.get("errors", [])
     is_mock  = results.get("is_mock", False)
+
+    # Stash for sector-breadth analysis inside the deep-dive spotlight
+    st.session_state["_last_highs"] = highs_df
+    st.session_state["_last_lows"]  = lows_df
 
     if is_mock:
         st.warning(

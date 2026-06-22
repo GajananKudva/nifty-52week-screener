@@ -154,6 +154,44 @@ def get_company_profile(symbol: str) -> dict:
     return {}
 
 
+def get_quarterly_summary(symbol: str, limit: int = 5) -> list[dict]:
+    """
+    Compact per-quarter ground-truth table for inline display:
+    {date, revenue, net_income, eps_actual, eps_est, beat_pct}.
+    Joins income-statement (revenue/NI) with earnings-surprises (EPS) by date.
+    """
+    income = get_income_statement(symbol, limit=limit)
+    if not isinstance(income, list):
+        income = []
+    sur = {}
+    for s in (get_earnings_surprises(symbol, limit=12) or []):
+        if isinstance(s, dict) and s.get("date"):
+            sur[s["date"]] = s
+
+    out: list[dict] = []
+    for q in income:
+        if not isinstance(q, dict):
+            continue
+        date   = q.get("date", "")
+        s      = sur.get(date, {})
+        actual = s.get("actualEarningResult")
+        est    = s.get("estimatedEarning")
+        beat   = None
+        try:
+            beat = (float(actual) - float(est)) / abs(float(est)) * 100
+        except Exception:
+            beat = None
+        out.append({
+            "date":       date,
+            "revenue":    q.get("revenue"),
+            "net_income": q.get("netIncome"),
+            "eps_actual": actual,
+            "eps_est":    est,
+            "beat_pct":   beat,
+        })
+    return out
+
+
 def get_latest_transcript(symbol: str) -> str:
     """
     Returns the most recent earnings call transcript (first 2,000 chars).
