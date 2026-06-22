@@ -1261,15 +1261,31 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'{catalyst_date}</span>'
         ) if catalyst_date and catalyst_date != "Not found" else ""
 
-        catalyst_html = (
-            f'<div style="margin-top:8px;">'
-            f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-            f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
-            f'Major Catalyst{stale_badge}</div>'
-            f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-            f'line-height:1.5;">{catalyst_text}{impact_chip}{date_chip}</div>'
-            f'</div>'
-        ) if catalyst_text else ""
+        if catalyst_text and catalyst_stale:
+            # Demote stale news — don't dress up an old article as today's trigger.
+            catalyst_html = (
+                f'<div style="margin-top:8px;">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
+                f'Major Catalyst{stale_badge}</div>'
+                f'<div style="font-size:12px;color:#8B949E;font-style:italic;'
+                f'line-height:1.5;">No fresh catalyst (&lt;7 days) — likely momentum / sector-driven.</div>'
+                f'<div style="font-size:11px;color:#6E7681;line-height:1.5;margin-top:3px;">'
+                f'Older context: {catalyst_text}{date_chip}</div>'
+                f'</div>'
+            )
+        elif catalyst_text:
+            catalyst_html = (
+                f'<div style="margin-top:8px;">'
+                f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
+                f'Major Catalyst{stale_badge}</div>'
+                f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+                f'line-height:1.5;">{catalyst_text}{impact_chip}{date_chip}</div>'
+                f'</div>'
+            )
+        else:
+            catalyst_html = ""
 
         with st.container(border=True):
             left_col, right_col = st.columns([3, 1])
@@ -1349,7 +1365,7 @@ def _fetch_all_news_context(ticker: str, company: str) -> str:
 
     clean        = ticker.replace(".NS", "").replace(".BO", "")
     today_str    = date.today().strftime("%d %b %Y")
-    cutoff_days  = 30
+    cutoff_days  = 14   # tightened from 30 — a 52W extreme is a "today" event; old news ≠ catalyst
     all_items: list[dict] = []   # {date_str, source, title, snippet}
 
     # ── 1. yfinance headlines ─────────────────────────────────────────────────
@@ -1852,6 +1868,8 @@ GLOBAL ENTITY ISOLATION RULES (apply to every sentence you write)
 - Group-level items must be excluded entirely.
 - Do NOT describe price movement or volume as a catalyst — only ROOT CAUSE business events.
 - Write with conviction and specific numbers. No hedging language: "may", "could", "might".
+- DIRECTION MATCH: This stock hit a 52-week {_action_word}. For a HIGH the PRIMARY catalyst MUST be a positive/supportive event (beat, order win, upgrade, capex); for a LOW it MUST be a negative event. An event of the opposite sign can only appear as a secondary or conflicting catalyst — NEVER as the primary driver. A profit decline can never be the primary driver of a record high.
+- SOURCE URLs: Every article in the context ends with 'URL: <link>'. When you cite a catalyst, copy that exact URL verbatim into its "url" field. If you have no URL from the context for a claim, set "url" to "". NEVER invent, guess, or build a URL.
 - Return ONLY valid JSON. No markdown fences, no preamble, no trailing text."""
 
     user_prompt = f"""Write a deep-dive Stock Catalyst Analysis for {company} ({ticker}). Today is {_today_str}.
@@ -1900,7 +1918,8 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
       "detail": "2-3 sentences: what happened, exact figures (Rs Cr, %, dates), and why it moved the stock.",
       "impact_pct": "e.g. '+8%' or '-5%'",
       "date": "Month DD, YYYY",
-      "source": "Publication name"
+      "source": "Publication name",
+      "url": "Exact source URL copied verbatim from the context 'URL:' line, or '' if none — never invent one"
     }}
   ],
   "watch_next": [
@@ -1915,6 +1934,8 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 RULES (violations will make the output useless):
 - Every catalyst must name {company} or {_clean_ticker} — no group-level or peer news
 - Do NOT use price/volume movement as a catalyst — only ROOT CAUSE business events
+- The primary catalyst's sign MUST match the move: positive event for a 52-week high, negative event for a low
+- Each catalyst's "url" must be copied verbatim from a context 'URL:' line, or left "" — never fabricated
 - primary_catalyst headline must contain a specific date and figure
 - impact_pct values across all catalysts should roughly sum to the total move from the opposite 52W extreme
 - catalyst_timeline: 3-5 events in strict chronological order — EVERY event must involve {company} directly; never include events from other companies, peers, or macro events unless they directly name {company}
@@ -1961,6 +1982,22 @@ RULES (violations will make the output useless):
                 if m:
                     raw = m.group(0)
             result = json.loads(raw.strip())
+
+            # ── Anti-hallucination: keep a catalyst URL only if it appears
+            #    verbatim in the context we actually gave the model ─────────────
+            _valid_urls = set(_re.findall(r'https?://[^\s\]\)"<>]+', all_context))
+            def _clean_url(u: str) -> str:
+                u = (u or "").strip()
+                if u.startswith("http") and (u in all_context or u in _valid_urls):
+                    return u
+                return ""
+            for _cat in result.get("catalysts", []) or []:
+                if isinstance(_cat, dict):
+                    _cat["url"] = _clean_url(_cat.get("url", ""))
+            if isinstance(result.get("primary_catalyst"), dict):
+                _pc = result["primary_catalyst"]
+                _pc["url"] = _clean_url(_pc.get("url", ""))
+
             st.session_state[cache_key] = result
             return result
         except Exception as e:
@@ -2307,9 +2344,10 @@ def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
 
     clean = ticker.replace(".NS", "").replace(".BO", "")
     headers = {"x-api-key": api_key, "Content-Type": "application/json"}
-    cutoff_45d  = (datetime.now(_tz.utc) - _td(days=45)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    cutoff_60d  = (datetime.now(_tz.utc) - _td(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    cutoff_90d  = (datetime.now(_tz.utc) - _td(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Tightened windows — a 52-week extreme is a recent event; old articles are context, not catalysts.
+    cutoff_news     = (datetime.now(_tz.utc) - _td(days=14)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_events   = (datetime.now(_tz.utc) - _td(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff_research = (datetime.now(_tz.utc) - _td(days=60)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     _INDIAN_DOMAINS = [
         "economictimes.indiatimes.com", "moneycontrol.com",
@@ -2344,43 +2382,61 @@ def _fetch_exa_context(company: str, ticker: str, api_key: str) -> str:
             pass
         return []
 
-    def _fmt_results(results: list[dict]) -> list[str]:
+    def _norm(results: list[dict], category: str) -> list[dict]:
+        """Flatten raw Exa hits into a uniform shape (keeping the real URL)."""
         out = []
         for r in results:
-            title      = (r.get("title") or "").strip()
-            url        = r.get("url", "")
+            title = (r.get("title") or "").strip()
+            url   = r.get("url", "") or ""
+            if not title:
+                continue
             pub        = (r.get("publishedDate") or "")[:10]
             source     = url.split("/")[2].replace("www.", "") if url else "web"
             highlights = r.get("highlights") or []
             snippet    = " … ".join(highlights[:3]) if highlights else (r.get("text") or "")[:400]
             snippet    = snippet.replace("\n", " ").strip()
-            if title:
-                out.append(f"[{source}] ({pub}) {title}\n  {snippet}")
+            out.append({"title": title, "url": url, "pub": pub,
+                        "source": source, "snippet": snippet, "category": category})
         return out
 
-    # ── Query 1: Recent company news (Indian outlets, 45 days) ────────────────
+    # ── Query 1: Recent company news (Indian outlets, 14 days) ────────────────
     news_q = (f"{company} {clean} NSE India latest news update "
               f"earnings revenue profit quarterly results")
-    news_results = _exa_search(news_q, cutoff_45d, num=8, domains=_INDIAN_DOMAINS)
-    if news_results:
-        lines.append(f"=== Exa: {company} — Recent News (Primary) ===")
-        lines.extend(_fmt_results(news_results))
-
-    # ── Query 2: Analyst research + price targets (90 days, open web) ─────────
+    # ── Query 2: Analyst research + price targets (60 days, open web) ─────────
     research_q = (f"{company} {clean} India stock analyst buy sell hold "
                   f"price target upgrade downgrade rating EPS estimate forecast")
-    research_results = _exa_search(research_q, cutoff_90d, num=6)
-    if research_results:
-        lines.append(f"\n=== Exa: {company} — Analyst Research & Price Targets ===")
-        lines.extend(_fmt_results(research_results))
-
     # ── Query 3: Corporate events — earnings calls, filings, announcements ─────
     events_q = (f"{company} {clean} India quarterly earnings call results "
                 f"dividend board meeting order win acquisition expansion {datetime.now().year-1} {datetime.now().year}")
-    events_results = _exa_search(events_q, cutoff_60d, num=5)
-    if events_results:
-        lines.append(f"\n=== Exa: {company} — Corporate Events & Announcements ===")
-        lines.extend(_fmt_results(events_results))
+
+    pooled  = (_norm(_exa_search(news_q,     cutoff_news,     num=8, domains=_INDIAN_DOMAINS), "News")
+             + _norm(_exa_search(events_q,   cutoff_events,   num=5),                          "Corporate Event")
+             + _norm(_exa_search(research_q, cutoff_research, num=6),                          "Analyst Research"))
+
+    # ── Dedupe (by URL, then by title prefix) and rank newest-first ───────────
+    seen_url: set[str] = set()
+    seen_ttl: set[str] = set()
+    deduped: list[dict] = []
+    for it in pooled:
+        ukey = it["url"].split("?")[0].rstrip("/").lower()
+        tkey = it["title"][:60].lower()
+        if (ukey and ukey in seen_url) or tkey in seen_ttl:
+            continue
+        if ukey:
+            seen_url.add(ukey)
+        seen_ttl.add(tkey)
+        deduped.append(it)
+    deduped.sort(key=lambda x: x["pub"] or "", reverse=True)   # newest-first
+
+    if deduped:
+        lines.append(f"=== Exa: {company} — Verified Sources (newest first) ===")
+        lines.append("Each item ends with 'URL: <link>' — copy that exact link when citing it.")
+        for it in deduped:
+            lines.append(
+                f"[{it['source']}] ({it['pub'] or 'date n/a'}) [{it['category']}] {it['title']}\n"
+                f"  {it['snippet']}\n"
+                f"  URL: {it['url']}"
+            )
 
     return "\n\n".join(lines) if lines else ""
 
@@ -3400,9 +3456,50 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
+    # ── Data-quality row: news freshness badge + conflicting-signals callout ───
+    _freshness = str(analysis.get("news_freshness", "")).strip()
+    _fresh_key = _freshness.split()[0].upper() if _freshness else ""
+    _is_stale_news = _fresh_key in ("STALE", "THIN")
+    if _freshness:
+        _fb_color = {"FRESH": "#3FB950", "STALE": "#F0B429", "THIN": "#8B949E"}.get(_fresh_key, "#8B949E")
+        _fb_bg    = {"FRESH": "#0d2618", "STALE": "#2d2208", "THIN": "#161B22"}.get(_fresh_key, "#161B22")
+        st.markdown(
+            f'<div style="display:inline-block;background:{_fb_bg};'
+            f'border:1px solid {_fb_color};border-radius:6px;padding:5px 12px;margin-bottom:12px;">'
+            f'<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:{_fb_color};">'
+            f'📰 NEWS: {_freshness}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    _conflict = str(analysis.get("conflicting_signals", "")).strip()
+    if _conflict and _conflict.lower() not in ("none found", "none", "n/a", ""):
+        st.markdown(
+            f'<div style="background:#2d2208;border:1px solid #F0B429;'
+            f'border-radius:8px;padding:12px 18px;margin-bottom:14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:1.5px;'
+            f'text-transform:uppercase;color:#F0B429;margin-bottom:5px;">⚠ Conflicting Reports</div>'
+            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{_conflict}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
     # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
     primary = analysis.get("primary_catalyst", {})
-    if primary and primary.get("headline"):
+    if _is_stale_news:
+        # Demote stale/thin news — don't present old articles as today's trigger.
+        st.markdown(
+            f'<div style="background:#161B22;border:1px dashed #6E7681;'
+            f'border-radius:10px;padding:16px 22px;margin:8px 0 16px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9889; Primary Driver</div>'
+            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.6;">'
+            f'No fresh company-specific catalyst found in the last 7 days — this {("high" if is_hi else "low")} '
+            f'is likely driven by momentum, sector rotation, or broad-market flows rather than a single news event. '
+            f'The items below are older context, not the trigger.</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    elif primary and primary.get("headline"):
         p_headline  = primary.get("headline", "")
         p_detail    = primary.get("detail", "")
         p_impact    = primary.get("impact_pct", "")
@@ -3496,9 +3593,16 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             cat_source = _html.escape(cat.get("source", ""))
             cat_impact = cat.get("impact_pct", "")
 
-            # Always use Google News search — AI-hallucinated URLs are unreliable
-            _q = _up.quote_plus(f"{cat.get('headline', '')} {name}")
-            cat_url = f"https://www.google.com/search?q={_q}&tbm=nws"
+            # Prefer the real source URL (validated against Exa context upstream);
+            # fall back to a Google News search only when no verified link exists.
+            _real_url = (cat.get("url") or "").strip()
+            if _real_url.startswith("http"):
+                cat_url   = _real_url
+                _link_txt = "↗ Read article"
+            else:
+                _q = _up.quote_plus(f"{cat.get('headline', '')} {name}")
+                cat_url   = f"https://www.google.com/search?q={_q}&tbm=nws"
+                _link_txt = "↗ Search news"
 
             _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
             _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
@@ -3527,10 +3631,10 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{detail}</div>'
                 + (f'<div style="font-size:11px;color:#6E7681;margin-top:8px;">'
                    f'{_cmeta}'
-                   f'<span style="margin-left:8px;color:#388bfd;font-size:10px;">↗ Read article</span>'
+                   f'<span style="margin-left:8px;color:#388bfd;font-size:10px;">{_link_txt}</span>'
                    f'</div>'
                    if _cmeta else
-                   f'<div style="font-size:11px;color:#388bfd;margin-top:8px;">↗ Read article</div>')
+                   f'<div style="font-size:11px;color:#388bfd;margin-top:8px;">{_link_txt}</div>')
                 + f'</div></div></div></a>',
                 unsafe_allow_html=True,
             )
