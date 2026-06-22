@@ -1585,6 +1585,8 @@ ENTITY ISOLATION RULES (non-negotiable)
 - If you cannot directly verify a catalyst names {company} → exclude it.
 - Do NOT describe price movement or volume as the catalyst — find the ROOT CAUSE business event.
 - Do NOT use the ticker symbol in the headline — use the company name.
+- DATE = EVENT DATE: use the date the business event actually occurred (the earnings/board-meeting/order date), NOT the date a news article was published or re-published. If only a recent re-report exists for an older event, use the original event date.
+- Sibling companies of the same business house (same promoter/brand, different listed entity and ticker) are DIFFERENT companies — exclude them.
 
 OUTPUT
 Return ONLY valid JSON — no markdown, no extra text:
@@ -1603,8 +1605,10 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
             f"Sector: {sector}\n\n"
             f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
             f"Task: Identify the SPECIFIC, DATED ROOT CAUSE business event that triggered this {direction}.\n"
-            f"- Prefer the most recent article. State its publication date in the headline.\n"
-            f"- If the most recent item is older than 7 days, set is_stale=true.\n"
+            f"- Date the catalyst by when the EVENT actually happened (e.g. the earnings/board-meeting "
+            f"date), NOT when an article about it was published. A recent article re-reporting an older "
+            f"result must carry the older EVENT date.\n"
+            f"- If the most recent genuinely NEW event is older than 7 days, set is_stale=true.\n"
             f"- If conflicting reports exist, pick the most credible and note the conflict in the headline.\n"
             f"- If no news explicitly names {company}, set headline to "
             f"\"{company} — no verified catalyst found\" and is_stale=true."
@@ -1865,7 +1869,9 @@ GLOBAL ENTITY ISOLATION RULES (apply to every sentence you write)
 - Analyze ONLY {company} (NSE: {_clean_ticker}).
 - Every catalyst, data point, and claim must explicitly name "{company}" or "{_clean_ticker}" in its source.
 - Do NOT attribute news from the parent group, subsidiaries, JVs, associate companies, or sector peers — even if they share a brand, promoter, or conglomerate name.
+- Sibling companies of the same business house are DIFFERENT entities with different tickers — exclude them entirely (e.g. for an AMC, exclude the group's fashion, capital, cement or metals arms). Same promoter/brand ≠ same company.
 - Group-level items must be excluded entirely.
+- EVENT DATE, NOT PUBLISH DATE: date every catalyst, timeline entry and the primary driver by when the event actually OCCURRED. For earnings/results, use the official report date from the VERIFIED FUNDAMENTAL DATA / earnings-surprises block above — NEVER the publication date of a later article that merely references it. A June article about April results is an April event.
 - Do NOT describe price movement or volume as a catalyst — only ROOT CAUSE business events.
 - Write with conviction and specific numbers. No hedging language: "may", "could", "might".
 - DIRECTION MATCH: This stock hit a 52-week {_action_word}. For a HIGH the PRIMARY catalyst MUST be a positive/supportive event (beat, order win, upgrade, capex); for a LOW it MUST be a negative event. An event of the opposite sign can only appear as a secondary or conflicting catalyst — NEVER as the primary driver. A profit decline can never be the primary driver of a record high.
@@ -1935,6 +1941,7 @@ RULES (violations will make the output useless):
 - Every catalyst must name {company} or {_clean_ticker} — no group-level or peer news
 - Do NOT use price/volume movement as a catalyst — only ROOT CAUSE business events
 - The primary catalyst's sign MUST match the move: positive event for a 52-week high, negative event for a low
+- Dates are EVENT dates, not article publish dates — anchor earnings dates to the VERIFIED FUNDAMENTAL DATA block
 - Each catalyst's "url" must be copied verbatim from a context 'URL:' line, or left "" — never fabricated
 - primary_catalyst headline must contain a specific date and figure
 - impact_pct values across all catalysts should roughly sum to the total move from the opposite 52W extreme
@@ -2485,31 +2492,64 @@ def _cached_yfinance_context(ticker: str) -> str:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_yf_company_context(ticker: str) -> str:
-    """Fetch company profile from yfinance as replacement for geo-blocked NSE stock API."""
+    """
+    Company profile for the prompt + sidebar snippet.
+
+    FMP profile is PRIMARY because it works everywhere (API-key based), giving
+    the SAME description locally and on Streamlit Cloud — where Yahoo Finance
+    geo-blocks datacenter IPs and yfinance returns nothing. yfinance is used to
+    supplement extra ratios and as a description fallback when FMP has none.
+    """
+    parts: list[str] = []
+    desc  = ""
+
+    # ── Primary: FMP profile (cloud-safe, environment-consistent) ─────────────
+    try:
+        from fmp import get_company_profile
+        prof = get_company_profile(ticker)
+        if prof:
+            desc = (prof.get("description") or "").strip()
+            if desc:
+                parts.append(f"Business Description:\n{desc[:800]}")
+            if prof.get("mktCap"):
+                try:
+                    parts.append(f"Market Cap: Rs {float(prof['mktCap'])/1e7:,.0f} Cr")
+                except Exception:
+                    pass
+            if prof.get("fullTimeEmployees"):
+                try:
+                    parts.append(f"Employees: {int(prof['fullTimeEmployees']):,}")
+                except Exception:
+                    pass
+            if prof.get("beta"):
+                try:
+                    parts.append(f"Beta: {float(prof['beta']):.2f}")
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # ── Supplement / fallback: yfinance (rich ratios; description if FMP empty) ─
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info
-        parts = []
-        if info.get("longBusinessSummary"):
-            parts.append(f"Business Description:\n{info['longBusinessSummary'][:800]}")
-        mktcap = info.get("marketCap")
-        if mktcap:
-            parts.append(f"Market Cap: Rs {mktcap/1e7:,.0f} Cr")
-        if info.get("fullTimeEmployees"):
-            parts.append(f"Employees: {info['fullTimeEmployees']:,}")
+        if not desc and info.get("longBusinessSummary"):
+            desc = info["longBusinessSummary"]
+            parts.insert(0, f"Business Description:\n{desc[:800]}")
+        if not any(p.startswith("Market Cap") for p in parts) and info.get("marketCap"):
+            parts.append(f"Market Cap: Rs {info['marketCap']/1e7:,.0f} Cr")
         if info.get("dividendYield"):
             parts.append(f"Dividend Yield: {info['dividendYield']*100:.2f}%")
-        if info.get("beta"):
-            parts.append(f"Beta: {info['beta']:.2f}")
         if info.get("returnOnEquity"):
             parts.append(f"ROE: {info['returnOnEquity']*100:.1f}%")
         if info.get("debtToEquity"):
             parts.append(f"Debt/Equity: {info['debtToEquity']:.2f}")
         if info.get("revenueGrowth"):
             parts.append(f"Revenue Growth (YoY): {info['revenueGrowth']*100:.1f}%")
-        return "\n".join(parts) if parts else ""
     except Exception:
-        return ""
+        pass
+
+    return "\n".join(parts) if parts else ""
 
 
 @st.cache_data(ttl=300, show_spinner=False)

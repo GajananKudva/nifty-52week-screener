@@ -142,6 +142,18 @@ def get_price_targets(symbol: str, limit: int = 5) -> list[dict]:
     return data[:limit] if isinstance(data, list) else []
 
 
+def get_company_profile(symbol: str) -> dict:
+    """
+    Company profile (description, sector, market cap, beta, employees, …).
+    Cloud-safe: FMP serves this over an API key, so it works on Streamlit
+    Cloud / datacenter IPs where yfinance is geo-blocked by Yahoo.
+    """
+    data = _get(f"profile/{_clean(symbol)}")
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return {}
+
+
 def get_latest_transcript(symbol: str) -> str:
     """
     Returns the most recent earnings call transcript (first 2,000 chars).
