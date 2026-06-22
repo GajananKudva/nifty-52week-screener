@@ -1557,31 +1557,41 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         # ── Step 2: single Groq call with full context ────────────────────────
         client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
 
-        system_msg = f"""You are a senior equity analyst. Today is {today}.
+        system_msg = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {today}.
 
-ENTITY ISOLATION RULES (critical):
-- Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company.
-- Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
-- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers — even if they share a brand or promoter.
-- If a headline refers to a group/holding entity rather than {clean_ticker}, exclude it.
-- If you cannot verify a catalyst names {company} directly, exclude it.
-- Do NOT describe price or volume movement as the catalyst — find the ROOT CAUSE event.
+SEARCH PROTOCOL
+Before answering, search the web for {company} ({clean_ticker}) news from the last 7 days. Check the last 24–48 hours for anything breaking. Prioritize sources: BSE/NSE exchange filings → company IR releases → SEBI disclosures → Bloomberg/Reuters/ET Markets/Mint/MoneyControl. If the freshest item you can find is older than 7 days, set is_stale=true and do NOT present it as current.
+
+ENTITY ISOLATION RULES (non-negotiable)
+- Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}" in the source text.
+- Do NOT attribute news from the parent group, subsidiaries, JVs, associate companies, or sector peers — even if they share a brand, promoter, or conglomerate name.
+- If a headline refers to the group/holding entity rather than {clean_ticker} specifically → exclude it entirely.
+- If you cannot directly verify a catalyst names {company} → exclude it.
+- Do NOT describe price movement or volume as the catalyst — find the ROOT CAUSE business event.
 - Do NOT use the ticker symbol in the headline — use the company name.
 
-OUTPUT: Return ONLY valid JSON — no markdown, no extra text:
-{{"headline": "DD Mon YYYY: specific catalyst under 90 chars", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
-Set is_stale=true if the most recent article in the context is older than 7 days from today ({today})."""
+OUTPUT
+Return ONLY valid JSON — no markdown, no extra text:
+{{"headline": "DD Mon YYYY: specific ROOT CAUSE catalyst under 90 chars — must include a figure", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
+Set is_stale=true if the most recent article you can find is older than 7 days from today ({today}). If no verified catalyst names {company} directly, set headline to "{company} — no verified catalyst found" and is_stale=true."""
+
+        ret1m_str = f"{ret1m:+.1f}%" if ret1m else "N/A"
+        ret3m_str = f"{ret3m:+.1f}%" if ret3m else "N/A"
+        vsurge_str = f"{vsurge:.1f}x" if vsurge else "N/A"
+        pe_str = f"{pe:.1f}x" if pe else "N/A"
 
         user_msg = (
-            f"{company} (NSE: {clean_ticker}) has just hit its {direction}.\n"
-            f"Price=Rs{price:,.0f} | 1M={f'{ret1m:+.1f}%' if ret1m else 'N/A'} | "
-            f"3M={f'{ret3m:+.1f}%' if ret3m else 'N/A'} | "
-            f"VolSurge={f'{vsurge:.1f}x' if vsurge else 'N/A'} | "
-            f"P/E={f'{pe:.1f}x' if pe else 'N/A'}\n\n"
+            f"{company} (NSE: {clean_ticker}) has just hit its {direction} today ({today}). "
+            f"Price: Rs{price:,.0f} | 1M: {ret1m_str} | 3M: {ret3m_str} | "
+            f"VolSurge: {vsurge_str} | P/E: {pe_str}\n"
+            f"Sector: {sector}\n\n"
             f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
-            f"Identify the SPECIFIC dated catalyst that triggered this move. "
-            f"Prefer the most recent article. If the most recent item is older than 7 days, "
-            f"set is_stale=true. State the publication date in the headline."
+            f"Task: Identify the SPECIFIC, DATED ROOT CAUSE business event that triggered this {direction}.\n"
+            f"- Prefer the most recent article. State its publication date in the headline.\n"
+            f"- If the most recent item is older than 7 days, set is_stale=true.\n"
+            f"- If conflicting reports exist, pick the most credible and note the conflict in the headline.\n"
+            f"- If no news explicitly names {company}, set headline to "
+            f"\"{company} — no verified catalyst found\" and is_stale=true."
         )
 
         resp   = client.chat.completions.create(
@@ -1833,16 +1843,18 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     _clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-    prompt = f"""You are a senior equity research analyst at a top institutional fund.
-Today is {_today_str}. Write a deep-dive Stock Catalyst Analysis for {company} ({ticker}).
+    system_prompt = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {_today_str}.
 
-═══ ENTITY ISOLATION — READ FIRST ═══
+GLOBAL ENTITY ISOLATION RULES (apply to every sentence you write)
 - Analyze ONLY {company} (NSE: {_clean_ticker}).
-- Every catalyst MUST explicitly name "{company}" or "{_clean_ticker}" in the source article.
-- DO NOT attribute news from parent group, subsidiaries, JVs, sector peers, or promoters — even if they share a brand name.
-- DO NOT describe price movement or volume as the catalyst. Find the ROOT CAUSE business event.
-- If a headline refers to a group entity rather than {_clean_ticker} directly, exclude it.
-══════════════════════════════════════
+- Every catalyst, data point, and claim must explicitly name "{company}" or "{_clean_ticker}" in its source.
+- Do NOT attribute news from the parent group, subsidiaries, JVs, associate companies, or sector peers — even if they share a brand, promoter, or conglomerate name.
+- Group-level items must be excluded entirely.
+- Do NOT describe price movement or volume as a catalyst — only ROOT CAUSE business events.
+- Write with conviction and specific numbers. No hedging language: "may", "could", "might".
+- Return ONLY valid JSON. No markdown fences, no preamble, no trailing text."""
+
+    user_prompt = f"""Write a deep-dive Stock Catalyst Analysis for {company} ({ticker}). Today is {_today_str}.
 
 MARKET DATA
   Current Price : Rs{price:,.2f}
@@ -1859,11 +1871,12 @@ NEWS & RESEARCH CONTEXT (Exa neural search + Tavily + NewsAPI + BSE filings — 
 {all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
 ══ YOUR TASK ══
-Step 1 — Identify the PRIMARY ROOT CAUSE: What single business event most directly caused {company} to reach a 52-week {_action_word}? This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, etc.) — NOT a market-wide move.
-{"Step 2 — The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Step 2 — Build the primary_catalyst field around the root cause you found in Step 1."}
-Step 3 — List 4–6 supporting catalysts that contributed. Mix positive/negative/neutral. Each must have a dated headline and specific figures.
-Step 4 — Build a chronological timeline showing how events cascaded into the 52-week {_action_word}.
-Step 5 — Assess what to watch next (future events only, after {_today_str}).
+STEP 1 — FRESHNESS CHECK State the date of the most recent news item in the context above. If it is older than 7 days from today ({_today_str}), note this in the `summary` field — do NOT present stale news as current.
+STEP 2 — PRIMARY ROOT CAUSE Identify the single business event most directly responsible for {company} reaching a 52-week {_action_word}. This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, capex announcement, etc.) — NOT a market-wide or sector move unless it names {company} directly. {"The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Build the primary_catalyst field around the root cause you found."}
+STEP 3 — SUPPORTING CATALYSTS List 4–6 supporting catalysts. Mix positive/negative/neutral. Each must: (a) name {company} or {_clean_ticker} explicitly, (b) have a dated headline with a specific figure, (c) explain WHY it moved the stock. If fewer than 4 verified catalysts exist, list what you found and add a "neutral" catalyst noting thin news flow.
+STEP 4 — CONFLICTING SIGNALS If any contradictory reports, analyst downgrades, or unverified rumors exist → include them as a "neutral" catalyst type with detail starting "⚠️ CONFLICTING: ".
+STEP 5 — CHRONOLOGICAL TIMELINE 3–5 events in strict date order. Every event must involve {company} directly. Never include events from other companies, peers, or macro unless they explicitly name {company}.
+STEP 6 — WATCH NEXT Only future events after {_today_str}. Include earnings date, AGM, regulatory decisions, analyst days if known.
 
 IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
 
@@ -1894,6 +1907,8 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
     {{"event": "Future event name", "date": "Date after {_today_str}", "implication": "Bull/bear implication"}}
   ],
   "peer_context": "1-2 sentences: is this move company-specific or sector-wide? How does {company} compare to closest peers?",
+  "news_freshness": "FRESH (most recent: DD Mon YYYY) | STALE (most recent: DD Mon YYYY, older than 7 days) | THIN (fewer than 3 verified sources)",
+  "conflicting_signals": "One sentence summarizing any contradictory reports, or 'None found' if clean.",
   "sources": ["Publication Name, Month DD YYYY"]
 }}
 
@@ -1913,7 +1928,7 @@ RULES (violations will make the output useless):
         api_key=_OPENAI_KEY,
         base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
     )
-    kwargs: dict = {"temperature": 0.1}
+    kwargs: dict = {"temperature": 0.1, "max_tokens": 2000}
     _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
     if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
         kwargs["response_format"] = {"type": "json_object"}
@@ -1924,7 +1939,10 @@ RULES (violations will make the output useless):
         try:
             response = client.chat.completions.create(
                 model=_OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
                 **kwargs,
             )
             raw = response.choices[0].message.content.strip()
@@ -1988,6 +2006,8 @@ def _fallback_deep_dive(ticker, company, sector, signal,
         ],
         "watch_next": [],
         "peer_context": "",
+        "news_freshness": "STALE",
+        "conflicting_signals": "None found",
         "sources": [],
     }
 
