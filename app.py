@@ -147,6 +147,16 @@ _EXA_KEY      = _secret("EXA_API_KEY", "")
 # (it costs an extra call and can hit rate limits). Set SELF_CRITIQUE=on to enable.
 _SELF_CRITIQUE = _secret("SELF_CRITIQUE", "off").lower() in ("1", "true", "yes", "on")
 
+# Rate-limit management for Groq's free tier:
+#  • QUICK_MODEL    — small/fast model for the per-stock pre-screen (24+ calls).
+#                     Using 8b-instant here keeps the big 70B token budget free
+#                     for deep dives. Plenty for a one-line catalyst headline.
+#  • FALLBACK_MODEL — used for a deep dive only when the primary model is 429'd.
+_QUICK_MODEL    = _secret("QUICK_MODEL",
+                          "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq" else _OPENAI_MODEL)
+_FALLBACK_MODEL = _secret("FALLBACK_MODEL",
+                          "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq" else "")
+
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
     from engine import DataEngine, ScreenerConfig
@@ -1619,7 +1629,7 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
         )
 
         resp   = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=_QUICK_MODEL,
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user",   "content": user_msg},
@@ -1965,12 +1975,17 @@ RULES (violations will make the output useless):
     if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
         kwargs["response_format"] = {"type": "json_object"}
 
-    # Retry with exponential backoff on rate-limit (429) errors
+    # Retry with backoff on 429; try the primary model first, then a
+    # higher-rate-limit fallback model before giving up.
     import re as _re
-    for _attempt in range(3):
+    _try_models = [_OPENAI_MODEL]
+    if _FALLBACK_MODEL and _FALLBACK_MODEL != _OPENAI_MODEL:
+        _try_models.append(_FALLBACK_MODEL)
+    _plan = [(m, r) for m in _try_models for r in range(2)]   # 2 rounds per model
+    for _attempt, (_use_model, _round) in enumerate(_plan):
         try:
             response = client.chat.completions.create(
-                model=_OPENAI_MODEL,
+                model=_use_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_prompt},
@@ -2058,7 +2073,9 @@ RULES (violations will make the output useless):
         except Exception as e:
             last_err = str(e)
             if "429" in last_err or "rate limit" in last_err.lower():
-                wait = 5 * (2 ** _attempt)   # 5s → 10s → 20s
+                # Honor Groq's "Please try again in 12.3s" hint when present.
+                _m = _re.search(r"try again in ([\d.]+)\s*s", last_err, _re.I)
+                wait = min(float(_m.group(1)) + 1.0, 25.0) if _m else 4 * (2 ** _round)
                 _time.sleep(wait)
             else:
                 break
@@ -2074,23 +2091,33 @@ def _fallback_deep_dive(ticker, company, sector, signal,
                         vsurge, pe, error="") -> dict:
     is_hi = "HIGH" in signal.upper()
     level = "52-week high" if is_hi else "52-week low"
-    err_note = f"OpenAI error: {error[:120]}" if error else "AI API key not configured"
+    _is_rate = bool(error) and ("429" in error or "rate limit" in error.lower())
+    _sector_txt = f"the {sector} sector" if sector else "an undisclosed sector"
+    if _is_rate:
+        err_note = "AI provider rate limit reached (Groq free tier)."
+        action   = "Wait ~30–60s, then click Retry Analysis. Tip: set FALLBACK_MODEL or upgrade the Groq tier to avoid this."
+    elif error:
+        err_note = f"AI error: {error[:120]}"
+        action   = "Click Retry Analysis to try again."
+    else:
+        err_note = "AI API key not configured"
+        action   = "Set LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY in secrets."
     return {
         "sentiment":     "Neutral",
         "confidence":    "Low",
-        "business_model": f"{company} operates in the {sector} sector. Configure an AI API key for a detailed business description.",
+        "business_model": f"{company} operates in {_sector_txt}. Detailed description unavailable — {err_note}",
         "primary_catalyst": {
             "headline": f"{company} is at its {level}",
             "impact_pct": "N/A",
-            "detail": f"Configure an AI API key for full catalyst analysis. {err_note}",
+            "detail": f"AI ANALYSIS UNAVAILABLE — {err_note} {action}",
         },
-        "summary": f"{company} ({ticker}) is near its {level} at Rs{price:,.2f}. Volume surge: {vsurge:.1f}x. Configure an AI API key for full catalyst analysis.",
+        "summary": f"AI ANALYSIS UNAVAILABLE — {company} ({ticker}) is near its {level} at Rs{price:,.2f} (volume surge {vsurge:.1f}x). {err_note} {action}",
         "catalyst_timeline": [],
         "catalysts": [
             {
                 "type":       "neutral",
                 "headline":   f"{company} is near its {level} — AI analysis unavailable",
-                "detail":     f"Configure an AI API key to get detailed catalyst analysis. {err_note}",
+                "detail":     f"{err_note} {action}",
                 "impact_pct": "N/A",
                 "date":       "",
                 "source":     "System",
@@ -3498,20 +3525,37 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             fresh_news_context=fresh_news_ctx,
         )
 
-    # ── Detect quota error and show actionable help ───────────────────────────
+    # ── Detect AI failure (rate limit / key / error) and show actionable help ──
     summary    = analysis.get("summary", "")
-    is_api_fail = ("AI API key not configured" in summary or "OpenAI error" in summary)
+    is_api_fail = ("AI ANALYSIS UNAVAILABLE" in summary
+                   or "AI API key not configured" in summary
+                   or "OpenAI error" in summary)
+    is_rate_limited = "rate limit" in summary.lower()
 
     if is_api_fail:
+        if is_rate_limited:
+            _box = (
+                '<div style="font-size:13px;font-weight:700;color:#F0B429;'
+                'margin-bottom:8px;">⏳ AI Rate Limit Reached</div>'
+                '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
+                'The AI provider (Groq free tier) is temporarily throttled. '
+                'Wait ~30–60 seconds and click Retry.<br>'
+                '<b>To avoid this:</b> set <code>FALLBACK_MODEL=llama-3.1-8b-instant</code>, '
+                'screen a smaller universe, or upgrade your Groq plan.'
+                '</div>'
+            )
+        else:
+            _box = (
+                '<div style="font-size:13px;font-weight:700;color:#F0B429;'
+                'margin-bottom:8px;">⚠️ AI Analysis Unavailable</div>'
+                '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
+                'Could not connect to the AI model. Check your API key in Streamlit secrets.<br>'
+                '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY'
+                '</div>'
+            )
         st.markdown(
             '<div style="background:#2a1a00;border:1px solid #F0B429;'
-            'border-radius:8px;padding:16px 20px;margin-bottom:16px;">'
-            '<div style="font-size:13px;font-weight:700;color:#F0B429;'
-            'margin-bottom:8px;">⚠️ AI Analysis Unavailable</div>'
-            '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
-            'Could not connect to the AI model. Check your API key in Streamlit secrets.<br>'
-            '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY'
-            '</div></div>',
+            'border-radius:8px;padding:16px 20px;margin-bottom:16px;">' + _box + '</div>',
             unsafe_allow_html=True,
         )
         cache_key = f"ai_{ticker}_{sig}"
