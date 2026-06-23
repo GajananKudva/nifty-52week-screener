@@ -1402,7 +1402,11 @@ def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
                          if isinstance(pub, (int, float)) else str(pub)[:10]
                 except Exception:
                     dt = ""
-                items.append({"date": dt, "source": "yfinance", "title": title, "snippet": ""})
+                _url = ((content.get("canonicalUrl") or {}).get("url")
+                        or (content.get("clickThroughUrl") or {}).get("url")
+                        or item.get("link") or "")
+                items.append({"date": dt, "source": "yfinance", "title": title,
+                              "snippet": "", "url": _url})
         except Exception:
             pass
         return items
@@ -1441,7 +1445,8 @@ def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
                 answer  = data.get("answer", "")
                 if answer:
                     items.append({"date": today_str, "source": "Tavily-summary",
-                                  "title": "Web Summary", "snippet": answer[:400]})
+                                  "title": "Web Summary", "snippet": answer[:400],
+                                  "url": ""})
                 for r in data.get("results", []):
                     title   = (r.get("title") or "")[:150]
                     snippet = (r.get("content") or "")[:200].replace("\n", " ")
@@ -1449,8 +1454,8 @@ def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
                     src     = r.get("url", "").split("/")[2].replace("www.", "") \
                               if r.get("url") else "web"
                     if title:
-                        items.append({"date": pub, "source": src,
-                                      "title": title, "snippet": snippet})
+                        items.append({"date": pub, "source": src, "title": title,
+                                      "snippet": snippet, "url": r.get("url", "")})
         except Exception:
             pass
         return items
@@ -1481,8 +1486,8 @@ def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
                     pub     = (art.get("publishedAt") or "")[:10]
                     src     = (art.get("source", {}).get("name") or "NewsAPI")
                     if title and "[Removed]" not in title:
-                        items.append({"date": pub, "source": src,
-                                      "title": title, "snippet": snippet})
+                        items.append({"date": pub, "source": src, "title": title,
+                                      "snippet": snippet, "url": art.get("url", "")})
         except Exception:
             pass
         return items
@@ -1517,7 +1522,7 @@ def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
                     snip   = " … ".join(hi[:1]) if hi else ""
                     if title:
                         items.append({"date": pub, "source": f"Exa/{src}",
-                                      "title": title, "snippet": snip})
+                                      "title": title, "snippet": snip, "url": url})
         except Exception:
             pass
         return items
@@ -2914,6 +2919,48 @@ def _fetch_peer_comparison_context(ticker: str) -> str:
         return ""
 
 
+def _match_article_url(headline: str, *pools) -> str:
+    """
+    Best-effort deterministic resolver: map an AI-written catalyst headline to a
+    REAL fetched-article URL by token overlap, so cards link to the actual story
+    instead of a search page. `pools` are lists of dicts that carry a title and a
+    link/url. Returns '' when no confident match exists.
+    """
+    import re as _re
+
+    _STOP = {"the", "and", "for", "with", "from", "that", "this", "after",
+             "amid", "into", "over", "near", "says", "report", "stock",
+             "shares", "share", "nse", "bse", "india", "indian", "ltd",
+             "limited", "rs", "cr", "crore", "year", "week", "high", "low"}
+
+    def _toks(s: str) -> set[str]:
+        return {w for w in _re.findall(r"[a-z0-9]{3,}", (s or "").lower())
+                if w not in _STOP}
+
+    h = _toks(headline)
+    if not h:
+        return ""
+
+    best_url, best_score = "", 0.0
+    for pool in pools:
+        for a in pool or []:
+            if not isinstance(a, dict):
+                continue
+            link = (a.get("link") or a.get("url") or "").strip()
+            if not link.startswith("http"):
+                continue
+            t = _toks(a.get("title", ""))
+            if not t:
+                continue
+            # Coverage of the headline's distinctive tokens by the article title.
+            score = len(h & t) / len(h)
+            if score > best_score:
+                best_score, best_url = score, link
+
+    # Require a meaningful overlap so we never link to an unrelated story.
+    return best_url if best_score >= 0.34 else ""
+
+
 def _render_news_feed(company: str, ticker: str, accent: str):
     """Render the Google News feed section below the analyst report."""
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -3391,6 +3438,9 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     # with today's date as the cutoff — same pipeline as the quick catalyst screen.
     with st.spinner("Fetching today's news (Exa + Tavily + NewsAPI in parallel)…"):
         fresh_news_ctx = _fetch_all_news_context(ticker, name)
+    # Structured items (with real URLs) from the same cached fetch — used to
+    # resolve AI catalyst headlines to actual article links in the cards below.
+    fresh_news_pool = _fetch_all_news_items(ticker, name)
 
     # ── Fetch live news (NewsAPI + ET/MC/BS RSS — also used for news feed below) ─
     with st.spinner("Fetching live news (NewsAPI + ET · MC · BS)…"):
@@ -3713,16 +3763,23 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             cat_source = _html.escape(cat.get("source", ""))
             cat_impact = cat.get("impact_pct", "")
 
-            # Prefer the real source URL (validated against Exa context upstream);
-            # fall back to a Google News search only when no verified link exists.
+            # Link resolution priority:
+            #   1. The LLM's URL, but only if validated against context upstream.
+            #   2. Deterministic match of the headline to a real fetched article
+            #      (live news + fresh news pool) — fixes the common case where the
+            #      model couldn't copy a URL verbatim.
+            #   3. Last resort: Google NEWS results (not a plain web search).
             _real_url = (cat.get("url") or "").strip()
+            if not _real_url.startswith("http"):
+                _real_url = _match_article_url(cat.get("headline", ""),
+                                               gn_articles, fresh_news_pool)
             if _real_url.startswith("http"):
                 cat_url   = _real_url
                 _link_txt = "↗ Read article"
             else:
                 _q = _up.quote_plus(f"{cat.get('headline', '')} {name}")
-                cat_url   = f"https://www.google.com/search?q={_q}&tbm=nws"
-                _link_txt = "↗ Search news"
+                cat_url   = f"https://news.google.com/search?q={_q}"
+                _link_txt = "↗ Find article"
 
             _icon  = {"positive": "✅", "negative": "❌", "neutral": "➖"}.get(cat_type, "➖")
             _cbg   = {"positive": "#0d2618", "negative": "#2a0d12", "neutral": "#161B22"}.get(cat_type, "#161B22")
