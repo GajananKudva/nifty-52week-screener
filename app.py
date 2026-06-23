@@ -1364,14 +1364,18 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     return None if selected.startswith("—") else selected
 
 
-def _fetch_all_news_context(ticker: str, company: str) -> str:
+@st.cache_data(ttl=900, show_spinner=False)
+def _fetch_all_news_items(ticker: str, company: str) -> list[dict]:
     """
-    Aggregate news from ALL available sources for the best pre-analysis context.
-    Sources (run in order, merged and sorted newest-first):
+    Fetch + dedup news from ALL sources ONCE (cached 15 min) so the
+    pre-analysis quick screen and the detailed deep-dive share a single
+    network round-trip instead of fetching the same articles twice.
+    Sources (merged, deduped, sorted newest-first):
       1. yfinance headlines   — free, fast, company-specific
       2. Tavily advanced      — web search with date filter (primary)
       3. NewsAPI              — date-sorted articles (NEWSAPI_KEY)
-    All results carry publication dates so the model can detect staleness.
+      4. Exa neural search    — semantic web search (EXA_KEY)
+    Returns a list of {date, source, title, snippet} dicts (newest first).
     """
     import requests as _req
     from datetime import datetime, date, timedelta
@@ -1533,7 +1537,7 @@ def _fetch_all_news_context(ticker: str, company: str) -> str:
                 pass
 
     if not all_items:
-        return ""
+        return []
 
     # ── Deduplicate by title prefix, sort newest-first ────────────────────────
     seen: set[str] = set()
@@ -1544,13 +1548,31 @@ def _fetch_all_news_context(ticker: str, company: str) -> str:
             seen.add(key)
             unique.append(item)
 
-    # ── Format for the prompt ─────────────────────────────────────────────────
+    return unique
+
+
+def _fetch_all_news_context(ticker: str, company: str,
+                            max_items: int = 12, max_snippet: int = 400) -> str:
+    """
+    Format the cached news items into a prompt block.
+
+    The deep-dive uses the full slice (12 items / 200-char snippets); the
+    pre-analysis quick screen passes a smaller slice (fewer items, shorter
+    snippets) to keep its token footprint minimal. Both still share ONE
+    cached network fetch via _fetch_all_news_items().
+    """
+    from datetime import date as _date
+    unique = _fetch_all_news_items(ticker, company)
+    if not unique:
+        return ""
+
+    today_str = _date.today().strftime("%d %b %Y")
     lines = [f"[News context as of {today_str} — {len(unique)} articles from "
-             f"Tavily / NewsAPI / yfinance, newest first]"]
-    for item in unique[:12]:
+             f"Tavily / NewsAPI / yfinance / Exa, newest first]"]
+    for item in unique[:max_items]:
         date_tag = f"[{item['date']}]" if item["date"] else ""
         src_tag  = f"[{item['source']}]"
-        snippet  = f"  — {item['snippet']}" if item["snippet"] else ""
+        snippet  = f"  — {item['snippet'][:max_snippet]}" if item["snippet"] else ""
         lines.append(f"{src_tag} {date_tag} {item['title']}{snippet}")
 
     return "\n".join(lines)
@@ -1578,7 +1600,12 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
         # ── Step 1: aggregate all news sources in parallel ────────────────────
-        news_context = _fetch_all_news_context(ticker, company)
+        # Pre-analysis only needs the freshest few headlines to name ONE root
+        # cause — so request a compact slice (6 items / short snippets). This
+        # keeps the pre-screen's token footprint minimal and leaves the full
+        # budget for the detailed deep-dive, which uses the full 12-item slice.
+        news_context = _fetch_all_news_context(ticker, company,
+                                               max_items=6, max_snippet=110)
 
         if not news_context:
             # No news at all — return data-driven heuristic immediately
@@ -1589,8 +1616,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
 
         system_msg = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {today}.
 
-SEARCH PROTOCOL
-Before answering, search the web for {company} ({clean_ticker}) news from the last 7 days. Check the last 24–48 hours for anything breaking. Prioritize sources: BSE/NSE exchange filings → company IR releases → SEBI disclosures → Bloomberg/Reuters/ET Markets/Mint/MoneyControl. If the freshest item you can find is older than 7 days, set is_stale=true and do NOT present it as current.
+EVIDENCE PROTOCOL
+Use ONLY the NEWS CONTEXT in the user message as evidence — you cannot browse. Within it, prioritize BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) over weaker sources. If the freshest item in the context is older than 7 days, set is_stale=true and do NOT present it as current.
 
 ENTITY ISOLATION RULES (non-negotiable)
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}" in the source text.
@@ -1680,110 +1707,6 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
             "is_stale":      True,
             "source":        "Heuristic (no recent news found)",
         }
-
-
-def _enrich_results_parallel(highs_df: pd.DataFrame, lows_df: pd.DataFrame) -> int:
-    """
-    Post-screen enrichment: for each hit stock, fetch yfinance news + Tavily
-    in parallel, then fire a llama-3.1-8b-instant call with that real context.
-    Stores {primary_catalyst} in session_state. Returns enriched count.
-    """
-    if not _AI_OK:
-        return 0
-
-    # Build task list — skip stocks already fully analysed
-    tasks = []
-    for sig, df in [("52W_HIGH", highs_df), ("52W_LOW", lows_df)]:
-        if df is None or df.empty:
-            continue
-        for _, row in df.iterrows():
-            ticker = row.get("ticker", "")
-            cache_key = f"ai_{ticker}_{sig}"
-            if cache_key in st.session_state:
-                continue
-            sector_val = row.get("sector", "") or ""
-            if str(sector_val).lower() in ("nan", "none"):
-                sector_val = ""
-            tasks.append({
-                "ticker":    ticker,
-                "company":   row.get("company_name", ticker),
-                "sector":    sector_val,
-                "signal":    sig,
-                "price":     _safe_float(row.get("current_price")) or 0,
-                "ret1m":     _safe_float(row.get("ret_1m"))         or 0,
-                "ret3m":     _safe_float(row.get("ret_3m"))         or 0,
-                "vsurge":    _safe_float(row.get("volume_surge"))   or 0,
-                "pe":        _safe_float(row.get("pe_ratio"))       or 0,
-                "cache_key": cache_key,
-            })
-
-    if not tasks:
-        return 0
-
-    # Stagger tasks: Groq free tier allows ~30 req/min for llama-3.1-8b-instant.
-    # With 2 workers, space each task 2s apart so we stay well under the limit.
-    for i, task in enumerate(tasks):
-        task["_delay"] = i * 2.0   # 0s, 2s, 4s, 6s … — absorbed by the worker thread
-
-    _results: dict = {}
-
-    def _call_one(task: dict) -> None:
-        import time as _time
-        # Step 1a: fetch real news context (yfinance headlines + Tavily) — inside this thread
-        news_ctx = _fetch_quick_news_context(task["ticker"], task["company"])
-
-        # Step 1b: fetch yfinance fundamentals (analyst targets, EPS, margins) in parallel
-        yf_ctx = ""
-        try:
-            if _SCREENER_OK:
-                yf_ctx = build_yfinance_context(task["ticker"])
-        except Exception:
-            pass
-
-        # Small stagger before Groq call — prevents all threads hitting the API simultaneously
-        # Groq free tier: ~30 req/min for llama-3.1-8b-instant → need ≥2s between batches
-        _time.sleep(task.get("_delay", 0))
-
-        # Step 2: Groq call with both news AND fundamentals for grounded analysis
-        pc = _quick_catalyst_groq(
-            task["ticker"], task["company"], task["sector"], task["signal"],
-            task["price"], task["ret1m"], task["ret3m"], task["vsurge"], task["pe"],
-            news_context=news_ctx,
-            yfinance_context=yf_ctx,
-        )
-        if pc and pc.get("headline"):
-            _results[task["cache_key"]] = {
-                "primary_catalyst": pc,
-                "sentiment": "",
-                "confidence": "Low",
-                "business_model": "",
-                "summary": "",
-                "catalyst_timeline": [],
-                "catalysts": [],
-                "watch_next": [],
-                "peer_context": "",
-                "sources": [],
-            }
-
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    # 2 workers max: each thread does Tavily + yfinance + Groq calls.
-    # Staggered delays above keep us under Groq's 30 req/min free-tier limit.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = {pool.submit(_call_one, t): t for t in tasks}
-        try:
-            # Timeout = 15s base + 3s per task (accounts for stagger delays)
-            _timeout = 15 + len(tasks) * 3
-            for _ in as_completed(futures, timeout=_timeout):
-                pass
-        except Exception:
-            pass
-
-    # Write to session_state in the main Streamlit thread (thread-safe)
-    for cache_key, data in _results.items():
-        if cache_key not in st.session_state:   # still don't overwrite a full analysis
-            st.session_state[cache_key] = data
-
-    return len(_results)
 
 
 def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
@@ -4183,30 +4106,4 @@ def main():
             mask = lows_df["ticker"] == selected_lo
             if mask.any():
                 row = lows_df[mask].iloc[0].to_dict()
-                sig = row.get("signal", "BREAKDOWN_LOW")
-                _cached_key = f"ai_{selected_lo}_{sig}"
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                if _cached_key in st.session_state:
-                    _render_spotlight(selected_lo, row, p)
-                else:
-                    if st.button("🔍 Run Deep Analysis", key=f"deep_lo_{selected_lo}",
-                                 help="Runs the full AI analyst report (1 API call)",
-                                 type="primary"):
-                        _render_spotlight(selected_lo, row, p)
-                    else:
-                        st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
-
-    with t_err:
-        if not errors:
-            st.success("✅ No errors in the last run — all tickers processed cleanly.")
-        else:
-            err_df = pd.DataFrame(errors)
-            st.dataframe(err_df, width='stretch')
-
-    if p["auto_refresh"]:
-        time.sleep(60)
-        st.rerun()
-
-
-if __name__ == "__main__":
-    main()
+    
