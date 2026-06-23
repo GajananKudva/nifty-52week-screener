@@ -1265,9 +1265,11 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             f'{catalyst_impact}</span>'
         ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
 
+        # Reframed: an older catalyst means the move is momentum continuation,
+        # not "stale" — present it as the run's origin rather than a warning.
         stale_badge = (
-            ' <span style="font-size:10px;font-weight:700;background:#2d2208;'
-            'color:#F0B429;border-radius:3px;padding:1px 6px;">⚠ Stale</span>'
+            ' <span style="font-size:10px;font-weight:700;background:#16261a;'
+            'color:#7FB950;border-radius:3px;padding:1px 6px;">↗ Momentum</span>'
         ) if catalyst_stale else ""
 
         date_chip = (
@@ -1276,16 +1278,17 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         ) if catalyst_date and catalyst_date != "Not found" else ""
 
         if catalyst_text and catalyst_stale:
-            # Demote stale news — don't dress up an old article as today's trigger.
+            # Momentum continuation: no fresh news this week, so surface the event
+            # that STARTED the run as the origin rather than dressing it up as today.
             catalyst_html = (
                 f'<div style="margin-top:8px;">'
                 f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
                 f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
                 f'Major Catalyst{stale_badge}</div>'
-                f'<div style="font-size:12px;color:#8B949E;font-style:italic;'
-                f'line-height:1.5;">No fresh catalyst (&lt;7 days) — likely momentum / sector-driven.</div>'
-                f'<div style="font-size:11px;color:#6E7681;line-height:1.5;margin-top:3px;">'
-                f'Older context: {catalyst_text}{date_chip}</div>'
+                f'<div style="font-size:12px;color:#8B949E;line-height:1.5;">'
+                f'No fresh news this week — riding momentum from:</div>'
+                f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+                f'line-height:1.5;margin-top:3px;">{catalyst_text}{date_chip}</div>'
                 f'</div>'
             )
         elif catalyst_text:
@@ -1607,12 +1610,13 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
         # ── Step 1: aggregate all news sources in parallel ────────────────────
-        # Pre-analysis only needs the freshest few headlines to name ONE root
-        # cause — so request a compact slice (6 items / short snippets). This
-        # keeps the pre-screen's token footprint minimal and leaves the full
-        # budget for the detailed deep-dive, which uses the full 12-item slice.
+        # Compact slice (6 items / short snippets) keeps tokens minimal. Look
+        # back ~75 days (not just 14) so that when there's no news THIS week the
+        # model can still surface the event that STARTED the momentum run — which
+        # we then present as the momentum origin rather than a bare "stale" note.
         news_context = _fetch_all_news_context(ticker, company,
-                                               max_items=6, max_snippet=110)
+                                               max_items=6, max_snippet=110,
+                                               cutoff_days=75)
 
         if not news_context:
             # No news at all — return data-driven heuristic immediately
@@ -1817,6 +1821,8 @@ GLOBAL ENTITY ISOLATION RULES (apply to every sentence you write)
 - Group-level items must be excluded entirely.
 - EVENT DATE, NOT PUBLISH DATE: date every catalyst, timeline entry and the primary driver by when the event actually OCCURRED. For earnings/results, use the official report date from the VERIFIED FUNDAMENTAL DATA / earnings-surprises block above — NEVER the publication date of a later article that merely references it. A June article about April results is an April event.
 - Do NOT describe price movement or volume as a catalyst — only ROOT CAUSE business events.
+- COMPANY NAME, NOT TICKER: in EVERY prose field (business_model, summary, catalyst headlines/details, timeline events) refer to the company as "{company}". NEVER write the ticker ("{ticker}" or "{_clean_ticker}") as if it were the company's name (e.g. write "AIA Engineering", never "AIAENG.NS designs…").
+- MOMENTUM CONTINUATION: if the root-cause catalyst occurred more than ~2 weeks ago, the move TODAY is the CONTINUED re-rating / momentum from it — not a fresh event. Say so explicitly: name the original event and its date, then explain that sustained follow-through buying (for a high) or selling (for a low), and the absence of offsetting news, is carrying {company} to this 52-week {_action_word} now. Never imply a months-old event happened today.
 - Write with conviction and specific numbers. No hedging language: "may", "could", "might".
 - DIRECTION MATCH: This stock hit a 52-week {_action_word}. For a HIGH the PRIMARY catalyst MUST be a positive/supportive event (beat, order win, upgrade, capex); for a LOW it MUST be a negative event. An event of the opposite sign can only appear as a secondary or conflicting catalyst — NEVER as the primary driver. A profit decline can never be the primary driver of a record high.
 - SOURCE URLs: Every article in the context ends with 'URL: <link>'. When you cite a catalyst, copy that exact URL verbatim into its "url" field. If you have no URL from the context for a claim, set "url" to "". NEVER invent, guess, or build a URL.
@@ -1840,7 +1846,7 @@ NEWS & RESEARCH CONTEXT (Exa neural search + Tavily + NewsAPI + BSE filings — 
 
 ══ YOUR TASK ══
 STEP 1 — FRESHNESS CHECK State the date of the most recent news item in the context above. If it is older than 7 days from today ({_today_str}), note this in the `summary` field — do NOT present stale news as current.
-STEP 2 — PRIMARY ROOT CAUSE Identify the single business event most directly responsible for {company} reaching a 52-week {_action_word}. This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, capex announcement, etc.) — NOT a market-wide or sector move unless it names {company} directly. {"The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Build the primary_catalyst field around the root cause you found."}
+STEP 2 — PRIMARY ROOT CAUSE Identify the single business event most directly responsible for {company} reaching a 52-week {_action_word}. This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, capex announcement, etc.) — NOT a market-wide or sector move unless it names {company} directly. {"The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Build the primary_catalyst field around the root cause you found."} If that root-cause event is older than ~2 weeks, treat it as the MOMENTUM ORIGIN: keep it as primary_catalyst, but make BOTH primary_catalyst.detail AND summary explicitly say that {company}'s 52-week {_action_word} TODAY is the continued momentum / ongoing re-rating from that event (sustained follow-through, no offsetting news) — quantify the run since then (e.g. "up X% since the DD Mon result") and do NOT imply it happened today.
 STEP 3 — SUPPORTING CATALYSTS List 4–6 supporting catalysts. Mix positive/negative/neutral. Each must: (a) name {company} or {_clean_ticker} explicitly, (b) have a dated headline with a specific figure, (c) explain WHY it moved the stock. If fewer than 4 verified catalysts exist, list what you found and add a "neutral" catalyst noting thin news flow.
 STEP 4 — CONFLICTING SIGNALS If any contradictory reports, analyst downgrades, or unverified rumors exist → include them as a "neutral" catalyst type with detail starting "⚠️ CONFLICTING: ".
 STEP 5 — CHRONOLOGICAL TIMELINE 3–5 events in strict date order. Every event must involve {company} directly. Never include events from other companies, peers, or macro unless they explicitly name {company}.
@@ -2963,6 +2969,27 @@ def _fetch_sector_index_move(sector: str) -> tuple:
     return (None, "")
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_fmp_pe(ticker: str):
+    """
+    P/E fallback for when yfinance .info is rate-limited/blocked (common on
+    cloud for NSE) so the screen returns no pe_ratio. Uses FMP — which already
+    powers the verified-fundamentals block — so it works wherever FMP works.
+    """
+    try:
+        from fmp import get_key_metrics
+        km = get_key_metrics(ticker, limit=1)
+        if km and isinstance(km, list) and isinstance(km[0], dict):
+            pe = km[0].get("peRatio")
+            if pe is not None:
+                pe = float(pe)
+                if 0 < pe < 100000:
+                    return round(pe, 1)
+    except Exception:
+        pass
+    return None
+
+
 def _match_article_url(headline: str, *pools) -> str:
     """
     Best-effort deterministic resolver: map an AI-written catalyst headline to a
@@ -3332,6 +3359,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     low52  = _safe_float(row.get("week_52_low"))
     vsurge = _safe_float(row.get("volume_surge"))
     pe     = _safe_float(row.get("pe_ratio"))
+    if not pe:                       # yfinance fundamentals often blocked → FMP fallback
+        pe = _fetch_fmp_pe(ticker)
     pfh    = _safe_float(row.get("pct_from_high")) or 0.0
     pfl    = _safe_float(row.get("pct_from_low"))  or 0.0
 
