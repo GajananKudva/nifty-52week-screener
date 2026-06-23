@@ -1228,7 +1228,10 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         # Fallback: build a short description from what we already have in the row
         if not biz_snippet:
             _parts = []
-            if sector:
+            _ind = str(row.get("industry") or "").strip()
+            if _ind and _ind.lower() not in ("nan", "none"):
+                _parts.append(f"Operates in {_ind}")
+            elif sector:
                 _parts.append(f"{sector} sector company listed on NSE")
             _mc = _safe_float(row.get("market_cap"))
             if _mc and _mc > 0:
@@ -2644,6 +2647,22 @@ def _fetch_yf_company_context(ticker: str) -> str:
     except Exception:
         pass
 
+    # ── Final description fallback: Screener.in "About" blurb ──────────────────
+    # FMP sometimes has no description for mid/small-cap NSE names and yfinance is
+    # geo-blocked on cloud — Screener.in works in both, so use it as a last resort.
+    # Only runs when we still have no description, so it's cheap in practice.
+    if not desc:
+        try:
+            if _SCREENER_OK:
+                _sc = build_screener_context(ticker) or ""
+                _i  = _sc.find("About:")
+                if _i >= 0:
+                    _about = _sc[_i + len("About:"):].split("\n")[0].strip()
+                    if len(_about) > 40:
+                        parts.insert(0, f"Business Description:\n{_about[:800]}")
+        except Exception:
+            pass
+
     return "\n".join(parts) if parts else ""
 
 
@@ -3174,9 +3193,7 @@ def _render_news_feed(company: str, ticker: str, accent: str):
             f'{source_badge}'
             f'<span style="font-size:11px;color:{pub_color};">&#128337; {art["published"]}</span>'
             f'</div>'
-            # Summary
-            + (f'<div style="font-size:12px;color:#8B949E;line-height:1.6;">'
-               f'{art["summary"]}</div>' if art["summary"] else "")
+            # Headlines only — article bodies omitted by design (the title links out).
             + f'</div>',
             unsafe_allow_html=True,
         )

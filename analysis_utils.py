@@ -336,9 +336,9 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
     if momentum_origin and momentum_origin.get("title"):
         _d = momentum_origin.get("date", "")
         drivers.append({
-            "icon": "🏁", "label": "Momentum origin",
-            "text": (f"The run likely began around {_d}: "
-                     if _d else "Likely trigger of the run: ")
+            "icon": "🗓", "label": "Momentum origin",
+            "text": (f"Move traces back to {_d}: "
+                     if _d else "Likely origin of the move: ")
                     + momentum_origin["title"],
             "url": momentum_origin.get("url", ""),
         })
@@ -368,10 +368,10 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
             if abs(mv) >= 2 and ((mv > 0) == is_hi):
                 signals.append("macro")
                 drivers.append({"icon": "🌐", "label": "Sector tailwind",
-                                "text": (f"{index_name or 'The sector index'} is {mv:+.1f}% "
-                                         f"recently — broad sector "
-                                         f"{'strength' if is_hi else 'weakness'} is lifting "
-                                         f"this name, not a single company event."), "url": ""})
+                                "text": (f"{index_name or 'The sector index'} is {mv:+.1f}% over the "
+                                         f"past month — broad sector "
+                                         f"{'strength' if is_hi else 'weakness'} is supporting the "
+                                         f"move rather than a single company event."), "url": ""})
     except Exception:
         pass
 
@@ -379,26 +379,26 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
     beats, misses, latest = _scan_earnings(earnings_surprise_context)
     if is_hi and beats > misses and beats > 0:
         signals.append("fundamental")
-        drivers.append({"icon": "📈", "label": "Earnings momentum",
-                        "text": (f"{beats} of the last 4 quarters beat estimates"
-                                 + (f" (latest {latest})" if latest else "")
-                                 + " — a fundamental re-rating, not just sentiment."), "url": ""})
+        drivers.append({"icon": "💹", "label": "Earnings trajectory",
+                        "text": (f"{beats} of the last four quarters exceeded estimates"
+                                 + (f" (most recent: {latest})" if latest else "")
+                                 + " — the move is underpinned by a fundamental re-rating."), "url": ""})
     elif (not is_hi) and misses >= beats and misses > 0:
         signals.append("fundamental")
-        drivers.append({"icon": "📉", "label": "Earnings pressure",
-                        "text": (f"{misses} of the last 4 quarters missed estimates"
-                                 + (f" (latest {latest})" if latest else "")
-                                 + " — weak fundamentals are driving the breakdown."), "url": ""})
+        drivers.append({"icon": "💹", "label": "Earnings trajectory",
+                        "text": (f"{misses} of the last four quarters missed estimates"
+                                 + (f" (most recent: {latest})" if latest else "")
+                                 + " — deteriorating fundamentals are weighing on the shares."), "url": ""})
 
     # ── D. Analyst signal ─────────────────────────────────────────────────────
     upside, action = _scan_upgrades(upgrades_context)
     if action:
         signals.append("analyst")
         drivers.append({"icon": "🏦", "label": "Analyst action",
-                        "text": f"Recent rating action — {action}", "url": ""})
+                        "text": f"Recent brokerage action — {action}.", "url": ""})
     elif upside is not None and abs(upside) >= 8 and ((upside > 0) == is_hi):
         drivers.append({"icon": "🏦", "label": "Analyst view",
-                        "text": f"Consensus target implies {upside:+.1f}% vs the current price.",
+                        "text": f"Consensus price target implies {upside:+.1f}% versus the current price.",
                         "url": ""})
 
     # ── Momentum (price + volume) ─────────────────────────────────────────────
@@ -407,16 +407,19 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
     if shown:
         signals.append("momentum")
         big = any(_aligned(v) for v in rets.values())
-        drivers.append({"icon": "🚀" if is_hi else "🔻", "label": "Momentum",
+        drivers.append({"icon": "📈" if is_hi else "📉", "label": "Price momentum",
                         "text": ("Trailing returns: " + "   ".join(shown)
-                                 + (" — a sustained run; " if big else " — ")
-                                 + ("buyers in control." if is_hi else "sellers in control.")),
+                                 + (" — an extended advance; the uptrend remains intact."
+                                    if big and is_hi else
+                                    " — an extended decline; the downtrend remains intact."
+                                    if big else
+                                    " — the prevailing trend remains in force.")),
                         "url": ""})
     try:
         if vsurge and float(vsurge) >= 2:
             drivers.append({"icon": "🔊", "label": "Volume",
-                            "text": f"Volume {float(vsurge):.1f}× the 20-day average — "
-                                    f"real conviction behind the move.", "url": ""})
+                            "text": f"Volume at {float(vsurge):.1f}× the 20-day average — "
+                                    f"elevated participation is confirming the move.", "url": ""})
     except Exception:
         pass
 
@@ -433,11 +436,11 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
         classification = "Technical / low-news"
 
     headline = {
-        f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move — not a single-company event.",
-        "Fundamental re-rating":    f"Backed by the company's earnings trajectory rather than a one-off headline.",
-        "Analyst-driven re-rating": f"Aligns with recent analyst actions and price targets.",
-        "Momentum-driven":          f"A momentum run — price and volume are driving this {word}, with no single fresh catalyst.",
-        "Technical / low-news":     f"No fresh company-specific catalyst — this {word} looks technical / momentum-driven.",
+        f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move rather than a single-company event.",
+        "Fundamental re-rating":    "Driven by the company's earnings trajectory rather than a one-off headline.",
+        "Analyst-driven re-rating": "Consistent with recent brokerage actions and price-target revisions.",
+        "Momentum-driven":          f"Momentum-driven: price and volume are extending this {word}, with no single fresh catalyst this week.",
+        "Technical / low-news":     f"No fresh company-specific catalyst — this {word} is technical and momentum-led.",
     }[classification]
 
     return {
