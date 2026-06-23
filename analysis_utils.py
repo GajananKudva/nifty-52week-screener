@@ -269,6 +269,186 @@ def sector_breadth(sector: str, ticker: str, highs_df, lows_df, is_hi: bool) -> 
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# No-news move diagnosis (deterministic — options A/B/C/D/E)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# When a stock hits a 52-week extreme but there is no fresh single-event news,
+# "stale" is unhelpful. This builds a grounded explanation from data the app has
+# already fetched — sector breadth, earnings trajectory, analyst actions, sector
+# tailwind and price/volume momentum — with ZERO LLM tokens and no new network
+# calls (callers pass in already-fetched context strings / values).
+
+def _fmt_pct(v):
+    try:
+        if v is None:
+            return None
+        return f"{float(v):+.1f}%"
+    except Exception:
+        return None
+
+
+def _scan_earnings(ctx: str):
+    """(beats, misses, latest_surprise) parsed from the earnings-surprise block."""
+    if not ctx:
+        return 0, 0, ""
+    beats  = len(re.findall(r"\bBEAT\b", ctx))
+    misses = len(re.findall(r"\bMISS\b", ctx))
+    m = re.search(r"(BEAT|MISS)\s*(?:by\s*)?([+-]?\d+(?:\.\d+)?)%", ctx)
+    latest = f"{m.group(1).title()} {m.group(2)}%" if m else ""
+    return beats, misses, latest
+
+
+def _scan_upgrades(ctx: str):
+    """(target_upside_pct, recent_action_line) parsed from the upgrades block."""
+    if not ctx:
+        return None, ""
+    up = None
+    m = re.search(r"Consensus Target:[^()]*\(([+-]?\d+(?:\.\d+)?)%", ctx)
+    if m:
+        try:
+            up = float(m.group(1))
+        except Exception:
+            up = None
+    action = ""
+    am = re.search(r"Recent Rating Actions[^\n]*\n\s*(.+)", ctx)
+    if am:
+        action = am.group(1).strip().lstrip()
+    return up, action
+
+
+def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=None,
+                  vsurge=None, ret_1m=None, ret_3m=None, ret_6m=None, ret_1y=None,
+                  earnings_surprise_context="", upgrades_context="",
+                  index_move_pct=None, index_name="",
+                  momentum_origin=None) -> dict:
+    """
+    Deterministic 'why did this move?' diagnosis for the no-fresh-news case.
+    Returns {classification, headline, drivers:[{icon,label,text,url}], breadth_line}.
+    """
+    word    = "high" if is_hi else "low"
+    drivers = []
+    signals = []
+
+    def _aligned(v):
+        return isinstance(v, (int, float)) and ((v > 0) == is_hi) and abs(v) >= 20
+
+    # ── A. Momentum origin (the event that likely started the run) ────────────
+    if momentum_origin and momentum_origin.get("title"):
+        _d = momentum_origin.get("date", "")
+        drivers.append({
+            "icon": "🏁", "label": "Momentum origin",
+            "text": (f"The run likely began around {_d}: "
+                     if _d else "Likely trigger of the run: ")
+                    + momentum_origin["title"],
+            "url": momentum_origin.get("url", ""),
+        })
+        signals.append("origin")
+
+    # ── B. Sector breadth ─────────────────────────────────────────────────────
+    breadth_line = sector_breadth(sector, ticker, highs_df, lows_df, is_hi)
+    n_sector = 0
+    try:
+        df = highs_df if is_hi else lows_df
+        if sector and df is not None and "sector" in getattr(df, "columns", []):
+            n_sector = int((df["sector"] == sector).sum())
+    except Exception:
+        n_sector = 0
+    if n_sector >= 3:
+        signals.append("sector")
+        drivers.append({"icon": "📊", "label": "Sector move",
+                        "text": breadth_line or
+                        f"Multiple {sector} names hit 52-week {word}s today.", "url": ""})
+    elif breadth_line:
+        drivers.append({"icon": "📊", "label": "Breadth", "text": breadth_line, "url": ""})
+
+    # ── E. Sector / macro tailwind ────────────────────────────────────────────
+    try:
+        if index_move_pct is not None:
+            mv = float(index_move_pct)
+            if abs(mv) >= 2 and ((mv > 0) == is_hi):
+                signals.append("macro")
+                drivers.append({"icon": "🌐", "label": "Sector tailwind",
+                                "text": (f"{index_name or 'The sector index'} is {mv:+.1f}% "
+                                         f"recently — broad sector "
+                                         f"{'strength' if is_hi else 'weakness'} is lifting "
+                                         f"this name, not a single company event."), "url": ""})
+    except Exception:
+        pass
+
+    # ── C. Earnings / valuation re-rating ─────────────────────────────────────
+    beats, misses, latest = _scan_earnings(earnings_surprise_context)
+    if is_hi and beats > misses and beats > 0:
+        signals.append("fundamental")
+        drivers.append({"icon": "📈", "label": "Earnings momentum",
+                        "text": (f"{beats} of the last 4 quarters beat estimates"
+                                 + (f" (latest {latest})" if latest else "")
+                                 + " — a fundamental re-rating, not just sentiment."), "url": ""})
+    elif (not is_hi) and misses >= beats and misses > 0:
+        signals.append("fundamental")
+        drivers.append({"icon": "📉", "label": "Earnings pressure",
+                        "text": (f"{misses} of the last 4 quarters missed estimates"
+                                 + (f" (latest {latest})" if latest else "")
+                                 + " — weak fundamentals are driving the breakdown."), "url": ""})
+
+    # ── D. Analyst signal ─────────────────────────────────────────────────────
+    upside, action = _scan_upgrades(upgrades_context)
+    if action:
+        signals.append("analyst")
+        drivers.append({"icon": "🏦", "label": "Analyst action",
+                        "text": f"Recent rating action — {action}", "url": ""})
+    elif upside is not None and abs(upside) >= 8 and ((upside > 0) == is_hi):
+        drivers.append({"icon": "🏦", "label": "Analyst view",
+                        "text": f"Consensus target implies {upside:+.1f}% vs the current price.",
+                        "url": ""})
+
+    # ── Momentum (price + volume) ─────────────────────────────────────────────
+    rets  = {"1M": ret_1m, "3M": ret_3m, "6M": ret_6m, "1Y": ret_1y}
+    shown = [f"{k} {_fmt_pct(v)}" for k, v in rets.items() if _fmt_pct(v) is not None]
+    if shown:
+        signals.append("momentum")
+        big = any(_aligned(v) for v in rets.values())
+        drivers.append({"icon": "🚀" if is_hi else "🔻", "label": "Momentum",
+                        "text": ("Trailing returns: " + "   ".join(shown)
+                                 + (" — a sustained run; " if big else " — ")
+                                 + ("buyers in control." if is_hi else "sellers in control.")),
+                        "url": ""})
+    try:
+        if vsurge and float(vsurge) >= 2:
+            drivers.append({"icon": "🔊", "label": "Volume",
+                            "text": f"Volume {float(vsurge):.1f}× the 20-day average — "
+                                    f"real conviction behind the move.", "url": ""})
+    except Exception:
+        pass
+
+    # ── Classification + one-line headline ────────────────────────────────────
+    if "sector" in signals or "macro" in signals:
+        classification = f"Sector-wide {word}"
+    elif "fundamental" in signals:
+        classification = "Fundamental re-rating"
+    elif "analyst" in signals:
+        classification = "Analyst-driven re-rating"
+    elif "momentum" in signals or "origin" in signals:
+        classification = "Momentum-driven"
+    else:
+        classification = "Technical / low-news"
+
+    headline = {
+        f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move — not a single-company event.",
+        "Fundamental re-rating":    f"Backed by the company's earnings trajectory rather than a one-off headline.",
+        "Analyst-driven re-rating": f"Aligns with recent analyst actions and price targets.",
+        "Momentum-driven":          f"A momentum run — price and volume are driving this {word}, with no single fresh catalyst.",
+        "Technical / low-news":     f"No fresh company-specific catalyst — this {word} looks technical / momentum-driven.",
+    }[classification]
+
+    return {
+        "classification": classification,
+        "headline":       headline,
+        "drivers":        drivers,
+        "breadth_line":   breadth_line,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Orchestrator
 # ──────────────────────────────────────────────────────────────────────────────
 
