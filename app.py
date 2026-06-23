@@ -1246,14 +1246,18 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         signal          = row.get("signal", "BREAKOUT_HIGH" if is_hi else "BREAKDOWN_LOW")
         ai_cache_key    = f"quick_{ticker}_{signal}"
 
-        cached_quick    = st.session_state.get(ai_cache_key, {})
-        catalyst_date   = ""
-        catalyst_stale  = False
+        cached_quick     = st.session_state.get(ai_cache_key, {})
+        catalyst_date    = ""
+        catalyst_stale   = False
+        catalyst_breadth = ""
+        catalyst_origin  = None
         if cached_quick.get("headline"):
-            catalyst_text   = cached_quick["headline"]
-            catalyst_impact = cached_quick.get("impact_pct", "")
-            catalyst_date   = cached_quick.get("catalyst_date", "")
-            catalyst_stale  = bool(cached_quick.get("is_stale", False))
+            catalyst_text    = cached_quick["headline"]
+            catalyst_impact  = cached_quick.get("impact_pct", "")
+            catalyst_date    = cached_quick.get("catalyst_date", "")
+            catalyst_stale   = bool(cached_quick.get("is_stale", False))
+            catalyst_breadth = cached_quick.get("move_breadth", "") or ""
+            catalyst_origin  = cached_quick.get("momentum_origin")
 
         # ── Card: 80% details left, 20% button right ──────────────────────────
         left_border = "#00c805" if is_hi else "#ff3b3b"
@@ -1278,8 +1282,22 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         ) if catalyst_date and catalyst_date != "Not found" else ""
 
         if catalyst_text and catalyst_stale:
-            # Momentum continuation: no fresh news this week, so surface the event
-            # that STARTED the run as the origin rather than dressing it up as today.
+            # Momentum continuation: surface WHY (sector-wide vs company-specific)
+            # and the actual news event that STARTED the run, with a link.
+            _breadth_line = (
+                f'<div style="font-size:11px;color:#8B949E;line-height:1.5;'
+                f'margin-top:5px;">📊 {catalyst_breadth}</div>'
+            ) if catalyst_breadth else ""
+            _origin_url = (catalyst_origin.get("url", "")
+                           if isinstance(catalyst_origin, dict) else "")
+            if _origin_url.startswith("http"):
+                _origin_txt = (
+                    f'<a href="{_origin_url}" target="_blank" rel="noopener noreferrer" '
+                    f'style="color:{catalyst_color};text-decoration:none;">{catalyst_text}</a>'
+                    f'{date_chip} <span style="color:#388bfd;font-size:10px;">↗ source</span>'
+                )
+            else:
+                _origin_txt = f'{catalyst_text}{date_chip}'
             catalyst_html = (
                 f'<div style="margin-top:8px;">'
                 f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
@@ -1288,7 +1306,8 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                 f'<div style="font-size:12px;color:#8B949E;line-height:1.5;">'
                 f'No fresh news this week — riding momentum from:</div>'
                 f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-                f'line-height:1.5;margin-top:3px;">{catalyst_text}{date_chip}</div>'
+                f'line-height:1.5;margin-top:3px;">{_origin_txt}</div>'
+                f'{_breadth_line}'
                 f'</div>'
             )
         elif catalyst_text:
@@ -1588,6 +1607,46 @@ def _fetch_all_news_context(ticker: str, company: str,
     return "\n".join(lines)
 
 
+def _momentum_origin_and_breadth(ticker: str, company: str,
+                                 sector: str, signal: str) -> tuple:
+    """
+    Deterministic enrichment for the pre-analysis card (zero LLM tokens):
+      • momentum origin — the actual news event that likely STARTED the run
+        (prefers a real catalyst-type headline, else the oldest dated item).
+      • breadth         — whether the move is sector-wide or company-specific.
+    Reuses the cached 75-day news items + the current screen's sector data.
+    """
+    origin = None
+    try:
+        items = _fetch_all_news_items(ticker, company, cutoff_days=75) or []
+        _KW = ("result", "earnings", "profit", "revenue", "order", "win",
+               "contract", "acqui", "merger", "stake", "dividend", "bonus",
+               "approval", "launch", "deal", "expansion", "capex", "guidance",
+               "upgrade", "rating", "target", "buyback")
+        dated = [it for it in items
+                 if it.get("date") and it.get("title")
+                 and "summary" not in str(it.get("source", "")).lower()]
+        if dated:
+            cat  = [it for it in dated if any(k in it["title"].lower() for k in _KW)]
+            pool = cat or dated
+            o    = min(pool, key=lambda x: x["date"])
+            origin = {"title": o["title"], "date": o["date"], "url": o.get("url", "")}
+    except Exception:
+        origin = None
+    breadth = ""
+    try:
+        import analysis_utils as _au
+        breadth = _au.sector_breadth(
+            sector, ticker,
+            st.session_state.get("_last_highs"),
+            st.session_state.get("_last_lows"),
+            "HIGH" in (signal or "").upper(),
+        )
+    except Exception:
+        breadth = ""
+    return origin, breadth
+
+
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
                           signal: str, price: float,
                           ret1m: float, ret3m: float,
@@ -1692,6 +1751,16 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
         if _bad:
             raise ValueError("bad_headline")
 
+        # Deterministic enrichment: sector-vs-individual + the news that started
+        # the run. If the model couldn't name a catalyst, use the origin headline.
+        _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
+        result["momentum_origin"] = _o
+        result["move_breadth"]    = _b
+        if _o and ("no verified catalyst" in headline.lower()
+                   or "no recent news" in headline.lower()):
+            result["headline"]      = f"{_o['date']}: {_o['title']}"[:120]
+            result["catalyst_date"] = _o.get("date", result.get("catalyst_date", ""))
+            result["is_stale"]      = True
         return result
 
     except Exception:
@@ -1707,16 +1776,31 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
             _parts.append(f"P/E {pe:.0f}×")
         if sector:
             _parts.append(f"{sector} sector momentum")
+        _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
+        if _o:
+            # We found the event that started the run — show it instead of a
+            # generic "no news" line.
+            return {
+                "headline":        f"{_o['date']}: {_o['title']}"[:120],
+                "impact_pct":      "N/A",
+                "catalyst_date":   _o.get("date", "Not found"),
+                "is_stale":        True,
+                "source":          "Momentum origin",
+                "momentum_origin": _o,
+                "move_breadth":    _b,
+            }
         fallback = (
             f"{company}: " + " · ".join(_parts)
             if _parts else f"{company} — no recent news found"
         )
         return {
-            "headline":      fallback[:90],
-            "impact_pct":    "N/A",
-            "catalyst_date": "Not found",
-            "is_stale":      True,
-            "source":        "Heuristic (no recent news found)",
+            "headline":        fallback[:90],
+            "impact_pct":      "N/A",
+            "catalyst_date":   "Not found",
+            "is_stale":        True,
+            "source":          "Heuristic (no recent news found)",
+            "momentum_origin": None,
+            "move_breadth":    _b,
         }
 
 
@@ -3049,6 +3133,24 @@ def _render_news_feed(company: str, ticker: str, accent: str):
         articles = _fetch_live_news(company, ticker)
 
     if not articles:
+        # Fallback to the Exa/Tavily/NewsAPI pool the analysis itself used — so we
+        # never show "no news" while the report above cites recent articles.
+        try:
+            _pool = _fetch_all_news_items(ticker, company, cutoff_days=75) or []
+            articles = [
+                {"source":    str(it.get("source", "")).replace("Exa/", ""),
+                 "title":     it.get("title", ""),
+                 "link":      it.get("url", "") or "#",
+                 "published": it.get("date", ""),
+                 "summary":   it.get("snippet", "")}
+                for it in _pool
+                if it.get("title")
+                and "summary" not in str(it.get("source", "")).lower()
+            ]
+        except Exception:
+            articles = []
+
+    if not articles:
         st.info("No recent news found for this company.")
         return
 
@@ -3450,8 +3552,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         with st.spinner("yfinance: fetching analyst targets & EPS…"):
             av_ctx = _cached_yfinance_context(ticker) if _SCREENER_OK else ""
         st.markdown(
-            f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#F0B429"};">'
-            f'{"✅ yfinance analyst data loaded" if av_ctx else "⚠️ yfinance fundamentals unavailable"}</div>',
+            f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#8B949E"};">'
+            f'{"✅ yfinance fundamentals loaded" if av_ctx else "ℹ️ Fundamentals via FMP / Screener"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -3477,8 +3579,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         with st.spinner("yfinance / FMP: analyst targets…"):
             upgrades_ctx = _fetch_yf_upgrades_context(ticker)
         st.markdown(
-            f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#F0B429"};">'
-            f'{"✅ Analyst targets loaded" if upgrades_ctx else "⚠️ Analyst data unavailable"}</div>',
+            f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#8B949E"};">'
+            f'{"✅ Analyst targets loaded" if upgrades_ctx else "ℹ️ Analyst view via news flow"}</div>',
             unsafe_allow_html=True,
         )
 
@@ -3661,80 +3763,84 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             unsafe_allow_html=True,
         )
 
-    # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
-    primary = analysis.get("primary_catalyst", {})
-    if _is_stale_news:
-        # No fresh single-event catalyst → build a grounded, deterministic
-        # diagnosis instead of an alarming "stale" note (options A–F). Zero LLM
-        # tokens: reuses data already fetched in this render.
-        import html as _html
-        import analysis_utils as _au
-
-        # A — momentum origin: widen the lookback to ~90d and take the oldest
-        #     real, dated, linkable article as the likely start of the run.
-        _origin = None
+    # ── Move Diagnosis (deterministic, ALWAYS shown) ──────────────────────────
+    # Grounds the move in data the LLM doesn't have: how many sector peers also
+    # hit the extreme (sector-wide vs company-specific), earnings trajectory,
+    # analyst actions, sector-index tailwind and the momentum origin. 0 tokens.
+    import html as _html
+    import analysis_utils as _au
+    try:
+        _dx_origin = None
         try:
-            _wide = _fetch_all_news_items(ticker, name, cutoff_days=90) or []
-            _dated = [it for it in _wide
-                      if it.get("date") and it.get("url") and it.get("title")
+            _wide  = _fetch_all_news_items(ticker, name, cutoff_days=90) or []
+            _dated = [it for it in _wide if it.get("date") and it.get("url")
+                      and it.get("title")
                       and "summary" not in str(it.get("source", "")).lower()]
             if _dated:
                 _o = min(_dated, key=lambda x: x["date"])
-                _origin = {"title": _o["title"], "date": _o["date"],
-                           "url": _o.get("url", "")}
+                _dx_origin = {"title": _o["title"], "date": _o["date"],
+                              "url": _o.get("url", "")}
         except Exception:
-            _origin = None
-
-        # E — sector index tailwind (best-effort, cached).
+            _dx_origin = None
         try:
-            _idx_pct, _idx_name = _fetch_sector_index_move(row.get("sector", ""))
+            _dx_idx_pct, _dx_idx_name = _fetch_sector_index_move(row.get("sector", ""))
         except Exception:
-            _idx_pct, _idx_name = (None, "")
+            _dx_idx_pct, _dx_idx_name = (None, "")
+        _diag = _au.diagnose_move(
+            sector=row.get("sector", ""), ticker=ticker, is_hi=is_hi,
+            highs_df=st.session_state.get("_last_highs"),
+            lows_df=st.session_state.get("_last_lows"),
+            vsurge=vsurge, ret_1m=ret_1m, ret_3m=ret_3m, ret_6m=ret_6m, ret_1y=ret_1y,
+            earnings_surprise_context=locals().get("earnings_surprise_ctx", ""),
+            upgrades_context=locals().get("upgrades_ctx", ""),
+            index_move_pct=_dx_idx_pct, index_name=_dx_idx_name,
+            momentum_origin=_dx_origin,
+        )
+    except Exception:
+        _diag = {"classification": "", "headline": "", "drivers": []}
 
-        # B/C/D + momentum — deterministic diagnosis.
-        try:
-            _diag = _au.diagnose_move(
-                sector=row.get("sector", ""), ticker=ticker, is_hi=is_hi,
-                highs_df=st.session_state.get("_last_highs"),
-                lows_df=st.session_state.get("_last_lows"),
-                vsurge=vsurge, ret_1m=ret_1m, ret_3m=ret_3m,
-                ret_6m=ret_6m, ret_1y=ret_1y,
-                earnings_surprise_context=locals().get("earnings_surprise_ctx", ""),
-                upgrades_context=locals().get("upgrades_ctx", ""),
-                index_move_pct=_idx_pct, index_name=_idx_name,
-                momentum_origin=_origin,
-            )
-        except Exception:
-            _diag = {"classification": "Momentum-driven",
-                     "headline": ("No single fresh catalyst — this move looks "
-                                  "momentum / sector-driven."),
-                     "drivers": []}
-
-        _drv_html = ""
-        for _d in _diag.get("drivers", []):
-            _txt  = _html.escape(_d.get("text", ""))
-            _lbl  = _html.escape(_d.get("label", ""))
-            _u    = (_d.get("url") or "").strip()
-            _link = (f' <a href="{_u}" target="_blank" rel="noopener noreferrer" '
-                     f'style="color:#388bfd;font-size:11px;text-decoration:none;">↗ source</a>'
-                     ) if _u.startswith("http") else ""
-            _drv_html += (
-                f'<div style="display:flex;gap:10px;margin-top:11px;">'
-                f'<span style="font-size:15px;line-height:1.3;">{_d.get("icon", "•")}</span>'
+    if _diag.get("drivers"):
+        _dx_html = ""
+        for _d in _diag["drivers"]:
+            _txt = _html.escape(_d.get("text", ""))
+            _lbl = _html.escape(_d.get("label", ""))
+            _u   = (_d.get("url") or "").strip()
+            _lk  = (f' <a href="{_u}" target="_blank" rel="noopener noreferrer" '
+                    f'style="color:#388bfd;font-size:11px;text-decoration:none;">↗ source</a>'
+                    ) if _u.startswith("http") else ""
+            _dx_html += (
+                f'<div style="display:flex;gap:10px;margin-top:9px;">'
+                f'<span style="font-size:14px;line-height:1.3;">{_d.get("icon", "•")}</span>'
                 f'<div style="flex:1;">'
                 f'<span style="font-size:12px;font-weight:700;color:#C9D1D9;">{_lbl}.</span> '
-                f'<span style="font-size:13px;color:#8B949E;line-height:1.6;">{_txt}{_link}</span>'
+                f'<span style="font-size:13px;color:#8B949E;line-height:1.6;">{_txt}{_lk}</span>'
                 f'</div></div>'
             )
+        st.markdown(
+            f'<div style="background:#161B22;border:1px solid #30363D;'
+            f'border-radius:10px;padding:14px 20px;margin:4px 0 14px;">'
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
+            f'text-transform:uppercase;color:#8B949E;margin-bottom:4px;">'
+            f'&#128202; Move Diagnosis &nbsp;·&nbsp; {_html.escape(_diag.get("classification", ""))}</div>'
+            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.5;">'
+            f'{_html.escape(_diag.get("headline", ""))}</div>'
+            f'{_dx_html}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
+    primary = analysis.get("primary_catalyst", {})
+    if _is_stale_news:
+        # Drivers already appear in the Move Diagnosis panel above — here we just
+        # state the classification + headline as the primary driver.
         st.markdown(
             f'<div style="background:#161B22;border:1px solid {accent};'
             f'border-radius:10px;padding:16px 22px;margin:8px 0 16px;">'
             f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
             f'text-transform:uppercase;color:{accent};margin-bottom:6px;">'
-            f'&#9889; Primary Driver &nbsp;·&nbsp; {_html.escape(_diag.get("classification", ""))}</div>'
+            f'&#9889; Primary Driver &nbsp;·&nbsp; {_html.escape(_diag.get("classification", "") or "Momentum-driven")}</div>'
             f'<div style="font-size:15px;font-weight:600;color:#E6EDF3;line-height:1.5;">'
-            f'{_html.escape(_diag.get("headline", ""))}</div>'
-            f'{_drv_html}'
+            f'{_html.escape(_diag.get("headline", "") or "No single fresh catalyst — momentum / sector-driven.")}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
