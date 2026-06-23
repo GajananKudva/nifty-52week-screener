@@ -4106,4 +4106,30 @@ def main():
             mask = lows_df["ticker"] == selected_lo
             if mask.any():
                 row = lows_df[mask].iloc[0].to_dict()
-    
+                sig = row.get("signal", "BREAKDOWN_LOW")
+                _cached_key = f"ai_{selected_lo}_{sig}"
+                st.markdown("<hr/>", unsafe_allow_html=True)
+                if _cached_key in st.session_state:
+                    _render_spotlight(selected_lo, row, p)
+                else:
+                    if st.button("🔍 Run Deep Analysis", key=f"deep_lo_{selected_lo}",
+                                 help="Runs the full AI analyst report (1 API call)",
+                                 type="primary"):
+                        _render_spotlight(selected_lo, row, p)
+                    else:
+                        st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
+
+    with t_err:
+        if not errors:
+            st.success("✅ No errors in the last run — all tickers processed cleanly.")
+        else:
+            err_df = pd.DataFrame(errors)
+            st.dataframe(err_df, width='stretch')
+
+    if p["auto_refresh"]:
+        time.sleep(60)
+        st.rerun()
+
+
+if __name__ == "__main__":
+    main()
