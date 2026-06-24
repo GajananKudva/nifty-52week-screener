@@ -827,6 +827,37 @@ def _run_screen(tickers: list[str], p: dict) -> dict:
     return out
 
 
+# ── Pre-computed snapshot loader ──────────────────────────────────────────────
+# build_snapshot.py (run on a schedule by GitHub Actions) writes this file. The
+# dashboard reads it so users see fresh results INSTANTLY instead of waiting for
+# a live scan on page load.
+_SNAPSHOT_PATH = Path(__file__).parent / "data" / "latest_screen.json"
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _load_snapshot() -> Optional[dict]:
+    """Load the pre-computed screen snapshot, or None if unavailable/pending."""
+    try:
+        if not _SNAPSHOT_PATH.exists():
+            return None
+        raw = json.loads(_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+        # A "pending" placeholder means no real scan has run yet — show the
+        # normal landing page instead of an empty results view.
+        if raw.get("pending"):
+            return None
+        return {
+            "highs":            pd.DataFrame(raw.get("highs", [])),
+            "lows":             pd.DataFrame(raw.get("lows", [])),
+            "errors":           raw.get("errors", []),
+            "is_mock":          False,
+            "from_snapshot":    True,
+            "generated_at_utc": raw.get("generated_at_utc"),
+            "generated_at_ist": raw.get("generated_at_ist", ""),
+        }
+    except Exception:
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # 7.  PLOTLY CHARTS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4319,7 +4350,22 @@ def main():
     elif "screen_results" in st.session_state:
         results = st.session_state["screen_results"]
     else:
-        results = None
+        # Fall back to the pre-computed snapshot (scheduled background job) so the
+        # dashboard shows fresh results instantly without waiting for a live scan.
+        snap = _load_snapshot()
+        if snap:
+            results = snap
+            st.session_state["screen_results"] = snap
+            st.session_state["_screen_key"]    = "__snapshot__"
+            try:
+                _gen = snap.get("generated_at_utc")
+                st.session_state["screen_ts"] = (
+                    datetime.fromisoformat(_gen).astimezone() if _gen else datetime.now()
+                )
+            except Exception:
+                st.session_state["screen_ts"] = datetime.now()
+        else:
+            results = None
 
     if not results:
         st.markdown(
@@ -4362,6 +4408,12 @@ def main():
             with st.expander(f"⚠ {len(errors)} fetch errors"):
                 st.dataframe(pd.DataFrame(errors), width='stretch')
         return
+
+    if results.get("from_snapshot"):
+        st.caption(
+            f"\U0001F7E2 Auto-updated snapshot \u00b7 last scan {results.get('generated_at_ist', '')} "
+            f"\u00b7 refreshes automatically every 30 min \u00b7 press \u25b6 Run Screen for a live scan"
+        )
 
     st.markdown(
         f"<div class='sec-hdr' style='margin-top:8px;'>"

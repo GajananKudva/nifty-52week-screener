@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "pending": true,
+  "note": "Placeholder. Replaced on the first run of build_snapshot.py (locally or via the GitHub Action).",
+  "generated_at_utc": null,
+  "generated_at_ist": "",
+  "counts": { "highs": 0, "lows": 0, "errors": 0 },
+  "highs": [],
+  "lows": [],
+  "errors": []
+}
