@@ -1208,7 +1208,7 @@ def _fmt_mcap(v) -> str:
     return f"₹{cr:,.0f} Cr"
 
 
-def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
+def _render_signals_table(df: pd.DataFrame, key: str, params: dict | None = None) -> Optional[str]:
     """Render signal cards (one per stock, with insight bullets). Returns selected ticker or None."""
     if df is None or df.empty:
         st.info("No signals meeting the current criteria.")
@@ -1449,15 +1449,21 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                                 st.session_state[ai_cache_key] = result
                                 st.rerun()
 
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+                # Per-card detailed-analysis trigger (toggles the inline report).
+                if st.button("🔍 Detailed Analysis", key=f"deep_btn_{key}_{ticker}",
+                             help=f"Full AI analyst report for {name}",
+                             width="stretch"):
+                    _cur = st.session_state.get(f"_deepsel_{key}")
+                    st.session_state[f"_deepsel_{key}"] = None if _cur == ticker else ticker
+                    st.rerun()
 
-    tickers = df["ticker"].tolist()
-    selected = st.selectbox(
-        "🔍 Select a stock for deep-dive analysis:",
-        options=["— Select —"] + tickers,
-        key=f"sel_{key}",
-    )
-    return None if selected.startswith("—") else selected
+        # If this card's button was clicked, render the deep-dive right here.
+        if params is not None and st.session_state.get(f"_deepsel_{key}") == ticker:
+            st.markdown("<hr/>", unsafe_allow_html=True)
+            _render_spotlight(ticker, row.to_dict(), params)
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    return st.session_state.get(f"_deepsel_{key}")
 
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -4352,23 +4358,9 @@ def _render_sidebar() -> dict:
 # 10. MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 def _signals_with_spotlight(df, key: str, default_sig: str, params: dict):
-    """Render a signal table + the deep-dive spotlight for the selected stock."""
-    selected = _render_signals_table(df, key=key)
-    if selected and isinstance(df, pd.DataFrame) and not df.empty:
-        mask = df["ticker"] == selected
-        if mask.any():
-            row = df[mask].iloc[0].to_dict()
-            sig = row.get("signal", default_sig)
-            _cached_key = f"ai_{selected}_{sig}"
-            st.markdown("<hr/>", unsafe_allow_html=True)
-            if _cached_key in st.session_state:
-                _render_spotlight(selected, row, params)
-            elif st.button("🔍 Run Deep Analysis", key=f"deep_{key}_{selected}",
-                           help="Runs the full AI analyst report (1 API call)",
-                           type="primary"):
-                _render_spotlight(selected, row, params)
-            else:
-                st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
+    """Render the signal cards; each card's 'Detailed Analysis' button shows the
+    full deep-dive report inline beneath that card."""
+    _render_signals_table(df, key=key, params=params)
 
 
 def main():
