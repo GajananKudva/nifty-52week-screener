@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-06-24T19:12:48.433527+00:00",
-  "generated_at_ist": "25 Jun 2026 · 00:42 IST",
-  "duration_seconds": 187.4,
+  "generated_at_utc": "2026-06-24T21:12:41.357537+00:00",
+  "generated_at_ist": "25 Jun 2026 · 02:42 IST",
+  "duration_seconds": 221.1,
   "universe_size": 2372,
   "params": {
     "high_low_window": 252,
@@ -594,10 +594,7 @@
       "market_cap": 328505032704.0,
       "days_since_prior_high": 27.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Schneider Electric Infrastructure Ltd (BOM:534139) Q3 2026 Earnings Call Highlights: Record ...",
-        "Schneider Electric Infrastructure Ltd (BOM:534139) Q2 2026 Earnings Call Highlights: Strategic ..."
-      ],
+      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
