@@ -1197,13 +1197,30 @@ def _build_why_bullets(row: dict, is_hi: bool) -> list[str]:
     return bullets[:5]  # cap at 5
 
 
+def _fmt_mcap(v) -> str:
+    """Indian market-cap label, e.g. '₹15,230 Cr' or '₹2.14 L Cr'. '' if unknown."""
+    m = _safe_float(v)
+    if not m or m <= 0:
+        return ""
+    cr = m / 1e7  # rupees -> crore
+    if cr >= 1e5:
+        return f"₹{cr/1e5:.2f} L Cr"
+    return f"₹{cr:,.0f} Cr"
+
+
 def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
     """Render signal cards (one per stock, with insight bullets). Returns selected ticker or None."""
     if df is None or df.empty:
         st.info("No signals meeting the current criteria.")
         return None
 
-    is_hi   = key == "hi"
+    # Always show the largest companies first.
+    if "market_cap" in df.columns:
+        df = df.copy()
+        df["_mc"] = pd.to_numeric(df["market_cap"], errors="coerce")
+        df = df.sort_values("_mc", ascending=False, na_position="last").drop(columns=["_mc"])
+
+    is_hi   = key.startswith("hi")
     card_cls   = "hi-card" if is_hi else "lo-card"
     status_cls = "sc-status-hi" if is_hi else "sc-status-lo"
 
@@ -1217,6 +1234,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         pct_hi  = _safe_float(row.get("pct_from_high"))
         pct_lo  = _safe_float(row.get("pct_from_low"))
         vsurge  = _safe_float(row.get("volume_surge"))
+        mcap_str = _fmt_mcap(row.get("market_cap"))
 
         price_str = f"&#8377;{price:,.2f}" if price else "&mdash;"
 
@@ -1406,7 +1424,9 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
                     f'<div style="font-size:12px;font-weight:600;color:{left_border};'
                     f'margin-top:4px;">{status}</div>'
                     f'<div style="font-size:11px;color:#8B949E;margin-top:3px;">{vol_str}</div>'
-                    f'</div>',
+                    + (f'<div style="font-size:11px;color:#C9D1D9;font-weight:600;'
+                       f'margin-top:3px;">MCap {mcap_str}</div>' if mcap_str else "")
+                    + f'</div>',
                     unsafe_allow_html=True,
                 )
                 if not catalyst_text and _AI_OK:
@@ -4331,6 +4351,26 @@ def _render_sidebar() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 # 10. MAIN
 # ══════════════════════════════════════════════════════════════════════════════
+def _signals_with_spotlight(df, key: str, default_sig: str, params: dict):
+    """Render a signal table + the deep-dive spotlight for the selected stock."""
+    selected = _render_signals_table(df, key=key)
+    if selected and isinstance(df, pd.DataFrame) and not df.empty:
+        mask = df["ticker"] == selected
+        if mask.any():
+            row = df[mask].iloc[0].to_dict()
+            sig = row.get("signal", default_sig)
+            _cached_key = f"ai_{selected}_{sig}"
+            st.markdown("<hr/>", unsafe_allow_html=True)
+            if _cached_key in st.session_state:
+                _render_spotlight(selected, row, params)
+            elif st.button("🔍 Run Deep Analysis", key=f"deep_{key}_{selected}",
+                           help="Runs the full AI analyst report (1 API call)",
+                           type="primary"):
+                _render_spotlight(selected, row, params)
+            else:
+                st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
+
+
 def main():
     # ── Inject styles ──────────────────────────────────────────────────────
     st.markdown(_CSS, unsafe_allow_html=True)
@@ -4468,42 +4508,27 @@ def main():
     ])
 
     with t_hi:
-        selected_hi = _render_signals_table(highs_df, key="hi")
-        if selected_hi and not highs_df.empty:
-            mask = highs_df["ticker"] == selected_hi
-            if mask.any():
-                row = highs_df[mask].iloc[0].to_dict()
-                sig = row.get("signal", "BREAKOUT_HIGH")
-                _cached_key = f"ai_{selected_hi}_{sig}"
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                if _cached_key in st.session_state:
-                    _render_spotlight(selected_hi, row, p)
-                else:
-                    if st.button("🔍 Run Deep Analysis", key=f"deep_hi_{selected_hi}",
-                                 help="Runs the full AI analyst report (1 API call)",
-                                 type="primary"):
-                        _render_spotlight(selected_hi, row, p)
-                    else:
-                        st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
+        if isinstance(highs_df, pd.DataFrame) and "high_type" in highs_df.columns:
+            _new_df  = highs_df[highs_df["high_type"] == "NEW"]
+            _cont_df = highs_df[highs_df["high_type"] != "NEW"]
+        else:
+            _empty = highs_df.iloc[0:0] if isinstance(highs_df, pd.DataFrame) else pd.DataFrame()
+            _new_df, _cont_df = _empty, highs_df
+        st.caption(
+            "**New** = first 52-week high in ≥ 40 days  ·  "
+            "**Continuation** = also hit a 52-week high within the last 40 days"
+        )
+        st_new, st_cont = st.tabs([
+            f"🆕  New 52W High  ({len(_new_df)})",
+            f"🔁  Continuation  ({len(_cont_df)})",
+        ])
+        with st_new:
+            _signals_with_spotlight(_new_df, "hi_new", "BREAKOUT_HIGH", p)
+        with st_cont:
+            _signals_with_spotlight(_cont_df, "hi_cont", "BREAKOUT_HIGH", p)
 
     with t_lo:
-        selected_lo = _render_signals_table(lows_df, key="lo")
-        if selected_lo and not lows_df.empty:
-            mask = lows_df["ticker"] == selected_lo
-            if mask.any():
-                row = lows_df[mask].iloc[0].to_dict()
-                sig = row.get("signal", "BREAKDOWN_LOW")
-                _cached_key = f"ai_{selected_lo}_{sig}"
-                st.markdown("<hr/>", unsafe_allow_html=True)
-                if _cached_key in st.session_state:
-                    _render_spotlight(selected_lo, row, p)
-                else:
-                    if st.button("🔍 Run Deep Analysis", key=f"deep_lo_{selected_lo}",
-                                 help="Runs the full AI analyst report (1 API call)",
-                                 type="primary"):
-                        _render_spotlight(selected_lo, row, p)
-                    else:
-                        st.info("Click **Run Deep Analysis** to generate the AI report for this stock.")
+        _signals_with_spotlight(lows_df, "lo", "BREAKDOWN_LOW", p)
 
     with t_err:
         if not errors:

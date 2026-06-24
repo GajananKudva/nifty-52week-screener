@@ -140,6 +140,21 @@ class DataEngine:
                     return round((current_price / base - 1) * 100, 2) if base > 0 else None
                 return None
 
+            # New vs continuation: days since the stock last sat at its prior
+            # 52-week-high level (the prior peak, excluding today's bar).
+            days_since_prior_high = None
+            high_type = None
+            if signal == "BREAKOUT_HIGH":
+                try:
+                    prior_high = window_df["High"].iloc[:-1]
+                    if len(prior_high) > 0:
+                        prior_peak_dt = prior_high.idxmax()
+                        days_since_prior_high = int((df.index[-1] - prior_peak_dt).days)
+                        high_type = "NEW" if days_since_prior_high >= 40 else "CONTINUATION"
+                except Exception:
+                    days_since_prior_high = None
+                    high_type = None
+
             return {
                 "ticker":         ticker,
                 "current_price":  round(current_price, 2),   # LTP — display only
@@ -154,6 +169,8 @@ class DataEngine:
                 "avg_vol_20d":    int(avg_vol_20d),
                 "current_vol":    int(current_vol),
                 "signal":         signal,
+                "days_since_prior_high": days_since_prior_high,
+                "high_type":      high_type,
                 "ret_1m":         trailing_return(21),
                 "ret_3m":         trailing_return(63),
                 "ret_6m":         trailing_return(126),
@@ -343,11 +360,12 @@ class DataEngine:
         flagged  = all_df[all_df["signal"].notna()].copy()
         highs_df = flagged[flagged["signal"] == "BREAKOUT_HIGH"].copy()
         lows_df  = flagged[flagged["signal"] == "BREAKDOWN_LOW"].copy()
-        _sort_col = "upside_downside_pct"
-        if not highs_df.empty and _sort_col in highs_df.columns:
-            highs_df.sort_values(_sort_col, ascending=False, inplace=True)
-        if not lows_df.empty and _sort_col in lows_df.columns:
-            lows_df.sort_values(_sort_col, ascending=False, inplace=True)
+        _sort_col = "market_cap"
+        for _sdf in (highs_df, lows_df):
+            if not _sdf.empty and _sort_col in _sdf.columns:
+                _sdf["_mc"] = pd.to_numeric(_sdf[_sort_col], errors="coerce")
+                _sdf.sort_values("_mc", ascending=False, na_position="last", inplace=True)
+                _sdf.drop(columns=["_mc"], inplace=True)
         logger.info(f"Screen complete | {len(highs_df)} BREAKOUT_HIGH | {len(lows_df)} BREAKDOWN_LOW")
         return {"highs": highs_df, "lows": lows_df, "all_flagged": flagged, "errors": self.errors}
 
@@ -362,6 +380,7 @@ class DataEngine:
             "pe_ratio", "forward_pe", "beta",
             "intrinsic_value", "upside_downside_pct", "dcf_stage1_growth",
             "ret_1m", "ret_3m", "ret_6m", "ret_1y",
+            "market_cap", "days_since_prior_high", "high_type",
             "news_headlines", "why_text", "signal",
         ]
         available = [c for c in ordered_cols if c in df.columns]
@@ -372,6 +391,7 @@ class DataEngine:
             "pe_ratio", "forward_pe", "beta",
             "intrinsic_value", "upside_downside_pct",
             "ret_1m", "ret_3m", "ret_6m", "ret_1y",
+            "market_cap",
         ]
         for col in numeric_cols:
             if col in out.columns:
@@ -619,11 +639,12 @@ class DataEngine:
         flagged = all_df[all_df["signal"].notna()].copy()
         highs_df = flagged[flagged["signal"] == "BREAKOUT_HIGH"].copy()
         lows_df  = flagged[flagged["signal"] == "BREAKDOWN_LOW"].copy()
-        _sort_col = "upside_downside_pct"
-        if not highs_df.empty and _sort_col in highs_df.columns:
-            highs_df.sort_values(_sort_col, ascending=False, inplace=True)
-        if not lows_df.empty and _sort_col in lows_df.columns:
-            lows_df.sort_values(_sort_col, ascending=False, inplace=True)
+        _sort_col = "market_cap"
+        for _sdf in (highs_df, lows_df):
+            if not _sdf.empty and _sort_col in _sdf.columns:
+                _sdf["_mc"] = pd.to_numeric(_sdf[_sort_col], errors="coerce")
+                _sdf.sort_values("_mc", ascending=False, na_position="last", inplace=True)
+                _sdf.drop(columns=["_mc"], inplace=True)
         logger.info(
             f"NSE live screen complete | {len(highs_df)} BREAKOUT_HIGH | {len(lows_df)} BREAKDOWN_LOW"
         )
