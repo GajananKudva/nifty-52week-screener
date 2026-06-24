@@ -1285,6 +1285,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         catalyst_stale   = False
         catalyst_breadth = ""
         catalyst_origin  = None
+        catalyst_nocat   = False
         if cached_quick.get("headline"):
             catalyst_text    = cached_quick["headline"]
             catalyst_impact  = cached_quick.get("impact_pct", "")
@@ -1292,6 +1293,7 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
             catalyst_stale   = bool(cached_quick.get("is_stale", False))
             catalyst_breadth = cached_quick.get("move_breadth", "") or ""
             catalyst_origin  = cached_quick.get("momentum_origin")
+            catalyst_nocat   = bool(cached_quick.get("no_catalyst", False))
 
         # ── Card: 80% details left, 20% button right ──────────────────────────
         left_border = "#00c805" if is_hi else "#ff3b3b"
@@ -1316,34 +1318,48 @@ def _render_signals_table(df: pd.DataFrame, key: str) -> Optional[str]:
         ) if catalyst_date and catalyst_date != "Not found" else ""
 
         if catalyst_text and catalyst_stale:
-            # Momentum continuation: surface WHY (sector-wide vs company-specific)
-            # and the actual news event that STARTED the run, with a link.
             _breadth_line = (
                 f'<div style="font-size:11px;color:#8B949E;line-height:1.5;'
                 f'margin-top:5px;">📊 {catalyst_breadth}</div>'
             ) if catalyst_breadth else ""
-            _origin_url = (catalyst_origin.get("url", "")
-                           if isinstance(catalyst_origin, dict) else "")
-            if _origin_url.startswith("http"):
-                _origin_txt = (
-                    f'<a href="{_origin_url}" target="_blank" rel="noopener noreferrer" '
-                    f'style="color:{catalyst_color};text-decoration:none;">{catalyst_text}</a>'
-                    f'{date_chip} <span style="color:#388bfd;font-size:10px;">↗ source</span>'
+            _has_origin = (isinstance(catalyst_origin, dict)
+                           and catalyst_origin.get("title") and not catalyst_nocat)
+            if _has_origin:
+                # A genuine earlier company catalyst is driving the continuation.
+                _origin_url = catalyst_origin.get("url", "")
+                if _origin_url.startswith("http"):
+                    _origin_txt = (
+                        f'<a href="{_origin_url}" target="_blank" rel="noopener noreferrer" '
+                        f'style="color:{catalyst_color};text-decoration:none;">{catalyst_text}</a>'
+                        f'{date_chip} <span style="color:#388bfd;font-size:10px;">↗ source</span>'
+                    )
+                else:
+                    _origin_txt = f'{catalyst_text}{date_chip}'
+                catalyst_html = (
+                    f'<div style="margin-top:8px;">'
+                    f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                    f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
+                    f'Major Catalyst{stale_badge}</div>'
+                    f'<div style="font-size:12px;color:#8B949E;line-height:1.5;">'
+                    f'No fresh catalyst recently — earlier driver:</div>'
+                    f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
+                    f'line-height:1.5;margin-top:3px;">{_origin_txt}</div>'
+                    f'{_breadth_line}'
+                    f'</div>'
                 )
             else:
-                _origin_txt = f'{catalyst_text}{date_chip}'
-            catalyst_html = (
-                f'<div style="margin-top:8px;">'
-                f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-                f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
-                f'Major Catalyst{stale_badge}</div>'
-                f'<div style="font-size:12px;color:#8B949E;line-height:1.5;">'
-                f'No fresh news this week — riding momentum from:</div>'
-                f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-                f'line-height:1.5;margin-top:3px;">{_origin_txt}</div>'
-                f'{_breadth_line}'
-                f'</div>'
-            )
+                # Honest: no recent company-specific catalyst — state it plainly,
+                # no misleading "riding momentum from" or Momentum badge.
+                catalyst_html = (
+                    f'<div style="margin-top:8px;">'
+                    f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
+                    f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
+                    f'Major Catalyst</div>'
+                    f'<div style="font-size:13px;color:#8B949E;font-weight:600;'
+                    f'line-height:1.5;">{catalyst_text}</div>'
+                    f'{_breadth_line}'
+                    f'</div>'
+                )
         elif catalyst_text:
             catalyst_html = (
                 f'<div style="margin-top:8px;">'
@@ -1610,6 +1626,19 @@ def _fetch_all_news_items(ticker: str, company: str, cutoff_days: int = 14) -> l
             seen.add(key)
             unique.append(item)
 
+    # ── Hard date floor: drop anything older than the cutoff window so stale
+    # (months-old) articles can never leak into catalyst / momentum-origin
+    # selection. Undated items are kept (we can't prove they're old). ──────────
+    try:
+        import analysis_utils as _au_dates
+        _floor = date.today() - timedelta(days=cutoff_days)
+        def _fresh_enough(it):
+            _d = _au_dates._parse_date(it.get("date", ""))
+            return _d is None or _d >= _floor
+        unique = [it for it in unique if _fresh_enough(it)]
+    except Exception:
+        pass
+
     return unique
 
 
@@ -1652,19 +1681,13 @@ def _momentum_origin_and_breadth(ticker: str, company: str,
     """
     origin = None
     try:
-        items = _fetch_all_news_items(ticker, company, cutoff_days=75) or []
-        _KW = ("result", "earnings", "profit", "revenue", "order", "win",
-               "contract", "acqui", "merger", "stake", "dividend", "bonus",
-               "approval", "launch", "deal", "expansion", "capex", "guidance",
-               "upgrade", "rating", "target", "buyback")
-        dated = [it for it in items
-                 if it.get("date") and it.get("title")
-                 and "summary" not in str(it.get("source", "")).lower()]
-        if dated:
-            cat  = [it for it in dated if any(k in it["title"].lower() for k in _KW)]
-            pool = cat or dated
-            o    = min(pool, key=lambda x: x["date"])
-            origin = {"title": o["title"], "date": o["date"], "url": o.get("url", "")}
+        import analysis_utils as _au
+        is_hi = "HIGH" in (signal or "").upper()
+        clean = ticker.replace(".NS", "").replace(".BO", "")
+        items = _fetch_all_news_items(ticker, company, cutoff_days=45) or []
+        # Most-recent company-specific, direction-consistent catalyst — or None.
+        origin = _au.pick_momentum_origin(items, company, clean, is_hi,
+                                          max_age_days=45)
     except Exception:
         origin = None
     breadth = ""
@@ -1721,7 +1744,7 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         system_msg = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {today}.
 
 EVIDENCE PROTOCOL
-Use ONLY the NEWS CONTEXT in the user message as evidence — you cannot browse. Within it, prioritize BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) over weaker sources. If the freshest item in the context is older than 7 days, set is_stale=true and do NOT present it as current.
+Use ONLY the NEWS CONTEXT in the user message as evidence — you cannot browse. Within it, prioritize BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) over weaker sources. If the freshest item in the context is older than 20 days, set is_stale=true and do NOT present it as current.
 
 ENTITY ISOLATION RULES (non-negotiable)
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}" in the source text.
@@ -1736,7 +1759,7 @@ ENTITY ISOLATION RULES (non-negotiable)
 OUTPUT
 Return ONLY valid JSON — no markdown, no extra text:
 {{"headline": "DD Mon YYYY: specific ROOT CAUSE catalyst under 90 chars — must include a figure", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
-Set is_stale=true if the most recent article you can find is older than 7 days from today ({today}). If no verified catalyst names {company} directly, set headline to "{company} — no verified catalyst found" and is_stale=true."""
+Set is_stale=true if the most recent article you can find is older than 20 days from today ({today}). If no verified catalyst names {company} directly, set headline to "{company} — no verified catalyst found" and is_stale=true."""
 
         ret1m_str = f"{ret1m:+.1f}%" if ret1m else "N/A"
         ret3m_str = f"{ret3m:+.1f}%" if ret3m else "N/A"
@@ -1753,7 +1776,7 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
             f"- Date the catalyst by when the EVENT actually happened (e.g. the earnings/board-meeting "
             f"date), NOT when an article about it was published. A recent article re-reporting an older "
             f"result must carry the older EVENT date.\n"
-            f"- If the most recent genuinely NEW event is older than 7 days, set is_stale=true.\n"
+            f"- If the most recent genuinely NEW event is older than 20 days, set is_stale=true.\n"
             f"- If conflicting reports exist, pick the most credible and note the conflict in the headline.\n"
             f"- If no news explicitly names {company}, set headline to "
             f"\"{company} — no verified catalyst found\" and is_stale=true."
@@ -1790,11 +1813,19 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
         _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
         result["momentum_origin"] = _o
         result["move_breadth"]    = _b
-        if _o and ("no verified catalyst" in headline.lower()
-                   or "no recent news" in headline.lower()):
-            result["headline"]      = f"{_o['date']}: {_o['title']}"[:120]
-            result["catalyst_date"] = _o.get("date", result.get("catalyst_date", ""))
-            result["is_stale"]      = True
+        if ("no verified catalyst" in headline.lower()
+                or "no recent news" in headline.lower()):
+            if _o:
+                result["headline"]      = f"{_o['date']}: {_o['title']}"[:120]
+                result["catalyst_date"] = _o.get("date", result.get("catalyst_date", ""))
+            else:
+                # Honest: no recent company-specific catalyst exists.
+                import analysis_utils as _au2
+                result["headline"]    = _au2.no_catalyst_summary(
+                    sector, "HIGH" in signal.upper(), _b)
+                result["catalyst_date"] = ""
+                result["no_catalyst"]   = True
+            result["is_stale"] = True
         return result
 
     except Exception:
@@ -1812,8 +1843,7 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
             _parts.append(f"{sector} sector momentum")
         _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
         if _o:
-            # We found the event that started the run — show it instead of a
-            # generic "no news" line.
+            # A genuine company-specific catalyst started the run — show it.
             return {
                 "headline":        f"{_o['date']}: {_o['title']}"[:120],
                 "impact_pct":      "N/A",
@@ -1823,18 +1853,21 @@ Set is_stale=true if the most recent article you can find is older than 7 days f
                 "momentum_origin": _o,
                 "move_breadth":    _b,
             }
-        fallback = (
-            f"{company}: " + " · ".join(_parts)
-            if _parts else f"{company} — no recent news found"
-        )
+        try:
+            import analysis_utils as _au3
+            _honest = _au3.no_catalyst_summary(sector, "HIGH" in signal.upper(), _b)
+        except Exception:
+            _honest = (f"{company}: " + " · ".join(_parts)) if _parts \
+                      else f"{company} — no recent company-specific catalyst found"
         return {
-            "headline":        fallback[:90],
+            "headline":        _honest[:120],
             "impact_pct":      "N/A",
             "catalyst_date":   "Not found",
             "is_stale":        True,
-            "source":          "Heuristic (no recent news found)",
+            "source":          "No company-specific catalyst",
             "momentum_origin": None,
             "move_breadth":    _b,
+            "no_catalyst":     True,
         }
 
 
@@ -1963,7 +1996,7 @@ NEWS & RESEARCH CONTEXT (Exa neural search + Tavily + NewsAPI + BSE filings — 
 {all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
 ══ YOUR TASK ══
-STEP 1 — FRESHNESS CHECK State the date of the most recent news item in the context above. If it is older than 7 days from today ({_today_str}), note this in the `summary` field — do NOT present stale news as current.
+STEP 1 — FRESHNESS CHECK State the date of the most recent news item in the context above. If it is older than 20 days from today ({_today_str}), note this in the `summary` field — do NOT present stale news as current.
 STEP 2 — PRIMARY ROOT CAUSE Identify the single business event most directly responsible for {company} reaching a 52-week {_action_word}. This must be a specific, dated event with figures (earnings beat, order win, regulatory ruling, capex announcement, etc.) — NOT a market-wide or sector move unless it names {company} directly. {"The confirmed primary catalyst above IS catalyst #1. Expand it with deeper evidence from the news context." if pre_catalyst_context else "Build the primary_catalyst field around the root cause you found."} If that root-cause event is older than ~2 weeks, treat it as the MOMENTUM ORIGIN: keep it as primary_catalyst, but make BOTH primary_catalyst.detail AND summary explicitly say that {company}'s 52-week {_action_word} TODAY is the continued momentum / ongoing re-rating from that event (sustained follow-through, no offsetting news) — quantify the run since then (e.g. "up X% since the DD Mon result") and do NOT imply it happened today.
 STEP 3 — SUPPORTING CATALYSTS List 4–6 supporting catalysts. Mix positive/negative/neutral. Each must: (a) name {company} or {_clean_ticker} explicitly, (b) have a dated headline with a specific figure, (c) explain WHY it moved the stock. If fewer than 4 verified catalysts exist, list what you found and add a "neutral" catalyst noting thin news flow.
 STEP 4 — CONFLICTING SIGNALS If any contradictory reports, analyst downgrades, or unverified rumors exist → include them as a "neutral" catalyst type with detail starting "⚠️ CONFLICTING: ".
@@ -2000,7 +2033,7 @@ IMPORTANT: Return ONLY valid JSON. No markdown fences, no preamble.
     {{"event": "Future event name", "date": "Date after {_today_str}", "implication": "Bull/bear implication"}}
   ],
   "peer_context": "1-2 sentences: is this move company-specific or sector-wide? How does {company} compare to closest peers?",
-  "news_freshness": "FRESH (most recent: DD Mon YYYY) | STALE (most recent: DD Mon YYYY, older than 7 days) | THIN (fewer than 3 verified sources)",
+  "news_freshness": "FRESH (most recent: DD Mon YYYY) | STALE (most recent: DD Mon YYYY, older than 20 days) | THIN (fewer than 3 verified sources)",
   "conflicting_signals": "One sentence summarizing any contradictory reports, or 'None found' if clean.",
   "sources": ["Publication Name, Month DD YYYY"]
 }}
@@ -3820,14 +3853,11 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     try:
         _dx_origin = None
         try:
-            _wide  = _fetch_all_news_items(ticker, name, cutoff_days=90) or []
-            _dated = [it for it in _wide if it.get("date") and it.get("url")
-                      and it.get("title")
-                      and "summary" not in str(it.get("source", "")).lower()]
-            if _dated:
-                _o = min(_dated, key=lambda x: x["date"])
-                _dx_origin = {"title": _o["title"], "date": _o["date"],
-                              "url": _o.get("url", "")}
+            _wide  = _fetch_all_news_items(ticker, name, cutoff_days=60) or []
+            _dx_origin = _au.pick_momentum_origin(
+                _wide, name, ticker.replace(".NS", "").replace(".BO", ""),
+                is_hi, max_age_days=60,
+            )
         except Exception:
             _dx_origin = None
         try:

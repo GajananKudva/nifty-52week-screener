@@ -14,7 +14,7 @@ trustworthy regardless of how the model behaved. No network calls here.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Acronyms that look like tickers but are safe to ignore in entity checks.
 _SAFE_TOKENS = {
@@ -266,6 +266,106 @@ def sector_breadth(sector: str, ticker: str, highs_df, lows_df, is_hi: bool) -> 
                 f"single company event.")
     except Exception:
         return ""
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Momentum-origin selection (shared by the card + the deep-dive Move Diagnosis)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Picks the news event most plausibly DRIVING a 52-week move, with four guards:
+#   • hard recency floor (no months-old stragglers),
+#   • entity isolation   (headline must name THIS company),
+#   • direction guard    (no net-negative news for a high; no net-positive for a low),
+#   • most-recent-first   (the latest qualifying catalyst, not the oldest).
+# Returns None when nothing qualifies — an honest "no company-specific catalyst".
+
+_NEG_WORDS = (
+    "fear", "fears", "shock", "fall", "falls", "fell", "drop", "drops", "plunge",
+    "plunges", "slump", "crash", "decline", "declines", "weak", "weakness", "loss",
+    "losses", "probe", "raid", "fraud", "downgrade", "downgrades", "cut", "cuts",
+    "warn", "warns", "warning", "concern", "concerns", "lawsuit", "ban", "penalty",
+    "fine", "default", "scam", "resign", "resigns", "exit", "slowdown", "miss",
+    "misses", "tariff", "tariffs", "headwind", "selloff", "sell-off", "bearish",
+    "worry", "worries", "risk", "risks", "pressure", "hurt", "drag", "slide",
+)
+_POS_WORDS = (
+    "surge", "surges", "soar", "soars", "rally", "rallies", "jump", "jumps", "gain",
+    "gains", "record", "profit", "profits", "beat", "beats", "win", "wins", "won",
+    "order", "orders", "bag", "bags", "secure", "secures", "upgrade", "upgrades",
+    "raise", "raises", "expansion", "expand", "acquire", "acquires", "acquisition",
+    "launch", "launches", "growth", "strong", "bullish", "approval", "approves",
+    "deal", "partnership", "buyback", "bonus", "dividend", "rise", "rises", "boost",
+    "outperform", "rerating", "re-rating",
+)
+_ORIGIN_KW = (
+    "result", "results", "earnings", "profit", "revenue", "order", "orders", "win",
+    "wins", "contract", "acqui", "merger", "stake", "dividend", "bonus", "approval",
+    "launch", "deal", "expansion", "capex", "guidance", "upgrade", "downgrade",
+    "rating", "target", "buyback", "partnership", "qip", "fundrais",
+)
+
+
+def _sentiment_ok(title: str, is_hi: bool) -> bool:
+    """Direction guard: reject net-negative headlines for highs (and vice versa)."""
+    low = (title or "").lower()
+    pos = sum(1 for w in _POS_WORDS if w in low)
+    neg = sum(1 for w in _NEG_WORDS if w in low)
+    return (pos >= neg) if is_hi else (neg >= pos)
+
+
+def _title_names_company(title: str, company: str, clean_ticker: str) -> bool:
+    """True if the headline explicitly names this company or its ticker."""
+    low = (title or "").lower()
+    ct = (clean_ticker or "").lower()
+    if ct and ct in low:
+        return True
+    return any(tok in low for tok in _significant_name_tokens(company))
+
+
+def pick_momentum_origin(items, company, clean_ticker, is_hi,
+                         max_age_days: int = 45, today=None):
+    """
+    Choose the news event most plausibly behind a 52-week move. See module note
+    above for the guards. Returns {title, date, url} or None.
+    """
+    if not items:
+        return None
+    today = today or datetime.now().date()
+    floor = today - timedelta(days=max_age_days)
+    qualified = []
+    for it in items:
+        title = it.get("title", "")
+        if not title:
+            continue
+        if "summary" in str(it.get("source", "")).lower():
+            continue
+        d = _parse_date(it.get("date", ""))
+        if d is None or d < floor or d > today:
+            continue
+        if not _title_names_company(title, company, clean_ticker):
+            continue
+        if not _sentiment_ok(title, is_hi):
+            continue
+        qualified.append((d, it))
+    if not qualified:
+        return None
+    # Prefer genuine catalyst-type headlines; among those, the most recent wins.
+    cat = [(d, it) for (d, it) in qualified
+           if any(k in it["title"].lower() for k in _ORIGIN_KW)]
+    pool = cat or qualified
+    d, o = max(pool, key=lambda x: x[0])
+    return {"title": o["title"],
+            "date": o.get("date") or d.strftime("%Y-%m-%d"),
+            "url": o.get("url", "")}
+
+
+def no_catalyst_summary(sector: str, is_hi: bool, breadth_line: str = "") -> str:
+    """Honest one-liner when no recent company-specific catalyst exists."""
+    word = "high" if is_hi else "low"
+    if breadth_line and "sector-wide" in breadth_line.lower():
+        return (f"Sector-wide {word} — part of a broad {sector or 'sector'} move, "
+                f"no single-company catalyst.")
+    return f"No recent company-specific catalyst — technical / momentum-led {word}."
 
 
 # ──────────────────────────────────────────────────────────────────────────────
