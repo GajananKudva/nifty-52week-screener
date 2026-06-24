@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-06-24T12:19:44.663818+00:00",
-  "generated_at_ist": "24 Jun 2026 · 17:49 IST",
-  "duration_seconds": 235.7,
+  "generated_at_utc": "2026-06-24T15:19:54.394343+00:00",
+  "generated_at_ist": "24 Jun 2026 · 20:49 IST",
+  "duration_seconds": 160.7,
   "universe_size": 2372,
   "params": {
     "high_low_window": 252,
@@ -574,7 +574,7 @@
       "avg_vol_20d": 288916,
       "current_vol": 459653,
       "pe_ratio": 60.75,
-      "forward_pe": 37.29,
+      "forward_pe": 37.0,
       "beta": 0.78,
       "intrinsic_value": NaN,
       "upside_downside_pct": NaN,
@@ -1897,11 +1897,11 @@
       "days_since_prior_high": NaN,
       "high_type": NaN,
       "news_headlines": [
+        "BlackBerry, Take-Two initiations among today's top calls on Wall Street",
         "Asian Equities Traded in the US as American Depositary Receipts Fall in Tuesday Trading",
         "India seeks tariff advantage before implementing U.S. trade deal",
         "Wipro Limited (WIT) Gains Due to Share Buyback Program and ServiceNow Partnership",
-        "ServiceNow (NOW) Expands Agentic AI With Wipro Digimarc And HPE Partnerships",
-        "Is ServiceNow (NOW) Quietly Becoming the Core Orchestrator of Enterprise AI Governance?"
+        "ServiceNow (NOW) Expands Agentic AI With Wipro Digimarc And HPE Partnerships"
       ],
       "signal": "BREAKDOWN_LOW"
     },
@@ -1954,7 +1954,7 @@
       "avg_vol_20d": 1580154,
       "current_vol": 1149144,
       "pe_ratio": 16.64,
-      "forward_pe": 12.63,
+      "forward_pe": 12.46,
       "beta": 0.36,
       "intrinsic_value": 417.51,
       "upside_downside_pct": 35.6,
