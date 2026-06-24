@@ -1,21 +1,15 @@
 name: 52-Week Screen Snapshot
 
-# Runs the headless screener on a schedule and commits data/latest_screen.json.
-# The Streamlit dashboard reads that file so users see fresh results instantly.
-
 on:
   schedule:
-    # Every 30 minutes, Monday–Friday (times are UTC). NSE trades ~03:45–10:00 UTC.
-    # Weekends are skipped because 52-week levels don't change when markets are shut.
-    # (To run literally 24/7 incl. weekends, change to: "*/30 * * * *")
     - cron: "*/30 * * * 1-5"
-  workflow_dispatch: {}        # lets you trigger a run manually from the Actions tab
+  workflow_dispatch: {}
 
 permissions:
-  contents: write              # required to commit the updated snapshot back to the repo
+  contents: write
 
 concurrency:
-  group: screen-snapshot       # never let two runs overlap
+  group: screen-snapshot
   cancel-in-progress: false
 
 jobs:
@@ -37,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-       - name: Run 52-week screen
+      - name: Run 52-week screen
         run: python build_snapshot.py
 
       - name: Commit snapshot
@@ -50,14 +44,12 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update 52-week screen snapshot [skip ci]"
-          # Push, integrating any concurrent changes; retry on push races so a
-          # collision with a manual push never fails the run.
           for i in 1 2 3 4 5; do
             if git push origin HEAD:main; then
               echo "Pushed on attempt $i."
               exit 0
             fi
-            echo "Push rejected (attempt $i) — rebasing onto latest main…"
+            echo "Push rejected (attempt $i) - rebasing onto latest main..."
             git pull --rebase --autostash origin main || git rebase --abort
             sleep $((RANDOM % 5 + 3))
           done
