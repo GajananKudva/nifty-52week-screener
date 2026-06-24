@@ -1734,6 +1734,16 @@ def _momentum_origin_and_breadth(ticker: str, company: str,
     return origin, breadth
 
 
+@st.cache_data(ttl=10800, show_spinner=False)   # 3h — macro/sector moves slowly
+def _macro_sector_ctx(sector: str = "") -> str:
+    """Cached macro + sector backdrop (World Bank + FRED + FMP + Finnhub)."""
+    try:
+        import macro_sector as _ms
+        return _ms.macro_sector_context(sector or "")
+    except Exception:
+        return ""
+
+
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
                           signal: str, price: float,
                           ret1m: float, ret3m: float,
@@ -1768,13 +1778,19 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
             # No news at all — return data-driven heuristic immediately
             raise ValueError("no_news")
 
+        _macro = _macro_sector_ctx(sector)
+        _macro_block = (
+            f"MACRO & SECTOR BACKDROP (judge sector-wide vs company-specific and "
+            f"global risk-on/off — NOT the company's own catalyst):\n{_macro}\n\n"
+        ) if _macro else ""
+
         # ── Step 2: single Groq call with full context ────────────────────────
         client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
 
         system_msg = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {today}.
 
 EVIDENCE PROTOCOL
-Use ONLY the NEWS CONTEXT in the user message as evidence — you cannot browse. Within it, prioritize BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) over weaker sources. If the freshest item in the context is older than 20 days, set is_stale=true and do NOT present it as current.
+Use ONLY the NEWS CONTEXT in the user message as evidence — you cannot browse. Within it, prioritize BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) over weaker sources. If the freshest item in the context is older than 20 days, set is_stale=true and do NOT present it as current. A MACRO & SECTOR BACKDROP block may follow the news — use it ONLY to judge sector-wide vs company-specific moves and global risk-on/off tone, never as the company's own catalyst; confirm nothing material broke in the last 24-48 hours.
 
 ENTITY ISOLATION RULES (non-negotiable)
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}" in the source text.
@@ -1802,6 +1818,7 @@ Set is_stale=true if the most recent article you can find is older than 20 days 
             f"VolSurge: {vsurge_str} | P/E: {pe_str}\n"
             f"Sector: {sector}\n\n"
             f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
+            f"{_macro_block}"
             f"Task: Identify the SPECIFIC, DATED ROOT CAUSE business event that triggered this {direction}.\n"
             f"- Date the catalyst by when the EVENT actually happened (e.g. the earnings/board-meeting "
             f"date), NOT when an article about it was published. A recent article re-reporting an older "
@@ -1992,6 +2009,7 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     _clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
+    macro_ctx = _macro_sector_ctx(sector)
     system_prompt = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {_today_str}.
 
 GLOBAL ENTITY ISOLATION RULES (apply to every sentence you write)
@@ -2022,6 +2040,7 @@ MARKET DATA
 {f"  Recent closes (oldest→newest): {price_series}" if price_series else ""}
 
 {f"══ CONFIRMED PRIMARY CATALYST (from initial screen — must be catalyst #1) ══{chr(10)}{pre_catalyst_context}{chr(10)}═══════════════════════════════════════════════════════════════════{chr(10)}" if pre_catalyst_context else ""}
+{f"== MACRO & SECTOR BACKDROP (frame sector-wide vs company-specific and global risk-on/off — background only, NOT a company catalyst) =={chr(10)}{macro_ctx}{chr(10)}" if macro_ctx else ""}
 NEWS & RESEARCH CONTEXT (Exa neural search + Tavily + NewsAPI + BSE filings — use these as primary evidence):
 {all_context if all_context.strip() else "  No additional context available — use your training knowledge."}
 
