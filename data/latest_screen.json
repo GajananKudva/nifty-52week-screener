@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-06-24T15:19:54.394343+00:00",
-  "generated_at_ist": "24 Jun 2026 · 20:49 IST",
-  "duration_seconds": 160.7,
+  "generated_at_utc": "2026-06-24T17:29:43.285927+00:00",
+  "generated_at_ist": "24 Jun 2026 · 22:59 IST",
+  "duration_seconds": 217.7,
   "universe_size": 2372,
   "params": {
     "high_low_window": 252,
