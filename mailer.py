@@ -101,6 +101,36 @@ def fetch_nifty500_live() -> list[str]:
         return []
 
 
+def fetch_all_nse_live() -> list[str]:
+    """
+    Download the FULL list of NSE-listed equities (EQUITY_L.csv, ~2000 names)
+    and return Yahoo Finance '.NS' tickers. Returns [] on any failure so the
+    caller can fall back to the Nifty 500 universe.
+    """
+    url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+    headers = {
+        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept":          "text/csv,*/*;q=0.9",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer":         "https://www.nseindia.com/",
+    }
+    try:
+        import pandas as pd
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        df = pd.read_csv(io.StringIO(resp.text))
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        col = "SYMBOL" if "SYMBOL" in df.columns else df.columns[0]
+        symbols = df[col].dropna().astype(str).str.strip().tolist()
+        tickers = [s + ".NS" for s in symbols
+                   if s and s.upper() != "SYMBOL" and not s.upper().startswith("DUMMY")]
+        logger.info(f"NSE full equity list: {len(tickers)} tickers from NSE ✓")
+        return tickers
+    except Exception as exc:
+        logger.warning(f"NSE full equity fetch failed ({exc}); falling back.")
+        return []
+
+
 # ── Hardcoded Nifty 500 fallback (as of May 2025) ────────────────────────────
 # All tickers use the Yahoo Finance '.NS' (NSE) suffix.
 NIFTY_500_TICKERS: list[str] = [

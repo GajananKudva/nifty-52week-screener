@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from engine import DataEngine, ScreenerConfig
-from mailer import NIFTY_500_TICKERS, fetch_nifty500_live
+from mailer import NIFTY_500_TICKERS, fetch_nifty500_live, fetch_all_nse_live
 
 HERE = Path(__file__).parent
 DATA_DIR = HERE / "data"
@@ -44,8 +44,10 @@ def build_universe(limit: int | None = None) -> list[str]:
     if env:
         tickers = [t.strip().upper() for t in env.split(",") if t.strip()]
     else:
-        live = fetch_nifty500_live()
-        tickers = live or NIFTY_500_TICKERS
+        # Full NSE main board (~2000); degrade gracefully if NSE blocks a run.
+        tickers = (fetch_all_nse_live()
+                   or fetch_nifty500_live()
+                   or NIFTY_500_TICKERS)
     # Drop placeholder tickers (e.g. DUMMYVEDL*.NS) that have no price data.
     tickers = [t for t in tickers if not t.upper().startswith("DUMMY")]
     if limit:

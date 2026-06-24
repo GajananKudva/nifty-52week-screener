@@ -166,13 +166,17 @@ except ImportError:
 
 # ── Nifty 500 universe import ─────────────────────────────────────────────────
 try:
-    from mailer import NIFTY_500_TICKERS, fetch_nifty500_live
+    from mailer import (NIFTY_500_TICKERS, fetch_nifty500_live,
+                        fetch_all_nse_live)
     _MAILER_OK = True
 except ImportError:
     _MAILER_OK = False
     NIFTY_500_TICKERS: list[str] = []
 
     def fetch_nifty500_live() -> list[str]:
+        return []
+
+    def fetch_all_nse_live() -> list[str]:
         return []
 
 
@@ -2620,6 +2624,8 @@ def _fetch_index_tickers(universe: str) -> list[str]:
         "Nifty Midcap 100":   "ind_niftymidcap100list.csv",
         "Nifty Smallcap 100": "ind_niftysmallcap100list.csv",
     }
+    if universe.startswith("All NSE"):
+        return fetch_all_nse_live()
     filename = _NSE_CSV.get(universe)
     if not filename:
         return []
@@ -4242,7 +4248,7 @@ def _render_sidebar() -> dict:
         )
         universe = st.radio(
             "Universe",
-            options=["Nifty 500", "Nifty 50", "Nifty 100",
+            options=["Nifty 500", "All NSE (~2000)", "Nifty 50", "Nifty 100",
                      "Nifty Midcap 100", "Nifty Smallcap 100", "Custom"],
             index=0,
             label_visibility="collapsed",
