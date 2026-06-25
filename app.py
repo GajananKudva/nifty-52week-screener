@@ -1261,7 +1261,7 @@ def _render_signals_table(df: pd.DataFrame, key: str, params: dict | None = None
         # ── Business model — 2 full sentences, with data fallback ───────────
         biz_snippet = ""
         try:
-            biz_ctx = _fetch_yf_company_context(ticker)
+            biz_ctx = _fetch_yf_company_context(ticker, row)
             if biz_ctx:
                 desc_start = biz_ctx.find("Business Description:\n")
                 if desc_start >= 0:
@@ -1876,6 +1876,15 @@ Set is_stale=true if the most recent article you can find is older than 20 days 
         )
         if _bad:
             raise ValueError("bad_headline")
+
+        # Snap the displayed date to the ACTUAL event date (earliest report /
+        # exchange-filing date), not the article's publish/re-report date.
+        try:
+            _ev = _au_rank.resolve_event_date(result.get("headline", ""), _ranked)
+            if _ev:
+                result["catalyst_date"] = _ev
+        except Exception:
+            pass
 
         # Deterministic enrichment: sector-vs-individual + the news that started
         # the run. If the model couldn't name a catalyst, use the origin headline.
@@ -2726,7 +2735,7 @@ def _cached_yfinance_context(ticker: str) -> str:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _fetch_yf_company_context(ticker: str) -> str:
+def _fetch_yf_company_context(ticker: str, row: dict | None = None) -> str:
     """
     Company profile for the prompt + sidebar snippet.
 
@@ -2809,6 +2818,35 @@ def _fetch_yf_company_context(ticker: str) -> str:
                                 parts.append(f"Key Ratios (Screener.in): {_kr[:300]}")
         except Exception:
             pass
+
+    # ── Guaranteed fallback: synthesize from the screen row so the profile is
+    # NEVER empty. FMP's free tier lacks many NSE names, yfinance is geo-blocked
+    # on Streamlit Cloud, and Screener can miss SME "About" blurbs — but the row
+    # always carries name / sector / industry / market cap / P/E. ──────────────
+    if not parts and row is not None and hasattr(row, "get"):
+        _cn   = str(row.get("company_name") or "").strip()
+        _ind  = str(row.get("industry") or "").strip()
+        _sec  = str(row.get("sector") or "").strip()
+        _dom  = _ind if _ind and _ind.lower() not in ("nan", "none", "") else _sec
+        if _cn and _dom:
+            parts.append(f"Business Description:\n{_cn} operates in the {_dom} "
+                         f"space and is listed on NSE.")
+        elif _dom:
+            parts.append(f"Business Description:\nA {_dom} company listed on NSE.")
+        try:
+            _mc = row.get("market_cap")
+            if _mc and float(_mc) > 0:
+                parts.append(f"Market Cap: Rs {float(_mc)/1e7:,.0f} Cr")
+        except Exception:
+            pass
+        try:
+            _pe = row.get("pe_ratio")
+            if _pe and float(_pe) > 0:
+                parts.append(f"P/E: {float(_pe):.1f}x")
+        except Exception:
+            pass
+        if _sec:
+            parts.append(f"Sector: {_sec}")
 
     return "\n".join(parts) if parts else ""
 
@@ -3701,7 +3739,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col4:
         with st.spinner("yfinance: fetching company profile…"):
-            nse_bse_ctx = _fetch_yf_company_context(ticker)
+            nse_bse_ctx = _fetch_yf_company_context(ticker, row)
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if nse_bse_ctx else "#F0B429"};">'
             f'{"✅ Company profile loaded" if nse_bse_ctx else "⚠️ Company profile unavailable"}</div>',
@@ -3817,6 +3855,22 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 f"This was identified as the single most impactful driver. Your detailed analysis "
                 f"MUST explain and expand on this catalyst with deeper evidence."
             )
+    # If no prior deep-dive exists, seed from the CARD's quick catalyst so the
+    # card and the detailed report ALWAYS describe the SAME main catalyst
+    # (fixes the card-vs-detailed mismatch on both highs and lows).
+    if not _pre_catalyst_ctx:
+        _quick = st.session_state.get(f"quick_{ticker}_{sig}", {})
+        if isinstance(_quick, dict):
+            _qh = _quick.get("headline", "")
+            if _qh and not _quick.get("no_catalyst"):
+                _qd = _quick.get("catalyst_date", "")
+                _pre_catalyst_ctx = (
+                    f"PRE-ANALYSIS PRIMARY CATALYST (from the screening card — must be addressed):\n"
+                    f"  Headline: {_qh}\n"
+                    f"  Event date: {_qd}\n"
+                    f"This is the SAME catalyst shown on the card. Your detailed analysis MUST "
+                    f"build the primary_catalyst around THIS event — do not switch to a different one."
+                )
 
     with st.spinner(f"AI is writing the analyst report for {name}…"):
         analysis = _ai_deep_dive(

@@ -563,6 +563,49 @@ def rank_catalysts(items, company, clean_ticker, is_hi,
     return [it for _s, _d, it in scored]
 
 
+# Tokens that don't help match a headline to its underlying news item.
+_DATE_STOP = {
+    "limited", "ltd", "company", "reports", "report", "strong", "results",
+    "result", "revenue", "profit", "growth", "stock", "shares", "share", "week",
+    "high", "low", "surges", "surge", "jumps", "rises", "gains", "with", "from",
+    "year", "quarter", "crore", "million", "billion", "this", "that", "after",
+    "amid", "over", "into", "says", "will", "news", "today", "update",
+}
+
+
+def resolve_event_date(headline, items, prefer_sources=("filing",)):
+    """
+    Return the ACTUAL EVENT date for a chosen catalyst headline, not the
+    publish/re-report date. News about an event breaks on the event day, so the
+    EARLIEST matching report is the event date; exchange filings (NSE/BSE) carry
+    the true board-meeting/results date and are preferred when present. Matches
+    the headline to the underlying news items by shared content words.
+    Returns 'YYYY-MM-DD' or None when nothing matches.
+    """
+    if not headline or not items:
+        return None
+    h = {w for w in re.findall(r"[a-z0-9]{4,}", headline.lower())
+         if w not in _DATE_STOP}
+    if not h:
+        return None
+    matched = []
+    for it in items:
+        toks = {w for w in re.findall(r"[a-z0-9]{4,}", (it.get("title") or "").lower())
+                if w not in _DATE_STOP}
+        if len(h & toks) < 2:                 # needs ≥2 shared content words
+            continue
+        d = _parse_date(it.get("date", ""))
+        if not d:
+            continue
+        is_filing = any(p in str(it.get("source", "")).lower() for p in prefer_sources)
+        matched.append((0 if is_filing else 1, d))
+    if not matched:
+        return None
+    # Exchange filings first; then the earliest date (= the event day).
+    matched.sort(key=lambda x: (x[0], x[1]))
+    return matched[0][1].strftime("%Y-%m-%d")
+
+
 def pick_momentum_origin(items, company, clean_ticker, is_hi,
                          max_age_days: int = 45, today=None,
                          llm_client=None, llm_model: str = ""):

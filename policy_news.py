@@ -174,9 +174,22 @@ def _fetch_policy_items(max_items: int = 12) -> list[dict]:
     return items
 
 
+def _is_listicle(title: str) -> bool:
+    """Drop 'Top 5 stocks to benefit'-style recommendation pieces from policy."""
+    try:
+        import analysis_utils as _au
+        return _au.is_junk_headline(title)
+    except Exception:
+        low = (title or "").lower()
+        return any(p in low for p in
+                   ("top 5", "top 10", "5 stocks", "10 stocks", "stocks to",
+                    "shares to", "to benefit", "stocks &", "best stocks"))
+
+
 def policy_context_block(max_items: int = 8) -> str:
     """Stock-agnostic policy/trade headlines for the macro prompt block."""
-    items = [i for i in _fetch_policy_items() if i.get("sectors")]
+    items = [i for i in _fetch_policy_items()
+             if i.get("sectors") and not _is_listicle(i.get("title", ""))]
     if not items:
         return ""
     lines = [f"[INDIA POLICY & TRADE WATCH — as of {date.today():%d %b %Y}]"]
@@ -192,16 +205,21 @@ def policy_drivers_for(sector: str = "", theme: str = "", is_hi: bool = True,
     """
     Policy headlines relevant to THIS stock's sector/theme and directionally
     consistent with its move. Returns [{text, url, date}] for the diagnosis.
+
+    Matching is EXACT on canonical sector/theme labels (both sides come from the
+    same controlled vocabulary) — never substring — so 'IT' no longer matches
+    'EV & Mobility' through the 'mobility' substring. Listicles are dropped.
     """
-    targets = {s.lower() for s in (sector, theme) if s}
+    targets = {s.strip().lower() for s in (sector, theme) if s and s.strip()}
     if not targets:
         return []
     want_pol = "positive" if is_hi else "negative"
     out: list[dict] = []
     for it in _fetch_policy_items():
-        secs = {s.lower() for s in it.get("sectors", [])}
-        match = any(t in s or s in t for t in targets for s in secs)
-        if not match:
+        secs = {s.strip().lower() for s in it.get("sectors", [])}
+        if not (targets & secs):                 # exact canonical-label overlap
+            continue
+        if _is_listicle(it.get("title", "")):     # no 'Top 5 stocks' pieces
             continue
         if it.get("polarity") not in (want_pol, "neutral"):
             continue
