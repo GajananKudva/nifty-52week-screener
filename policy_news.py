@@ -226,33 +226,81 @@ def policy_context_block(max_items: int = 8) -> str:
     return "\n".join(lines)
 
 
+# Explicit industry keywords that must appear in a policy headline/snippet for
+# it to count as relevant to THAT industry. Trailing spaces avoid substring
+# false-positives (e.g. "it " won't match "deposit"). Generic pieces about
+# "Indian markets and companies" carry none of these and are dropped.
+_SECTOR_KEYWORDS = {
+    "it": ("it ", "i.t.", "software", "tech ", "technology", "saas", "fintech",
+           "it services", "it sector", "bfsi", "digital", "h-1b", "h1-b"),
+    "financials": ("bank", "banking", "nbfc", "lending", "insurance", "insurer",
+                   "finance", "financial", "microfinance", "fintech", "credit"),
+    "pharma & healthcare": ("pharma", "drug", "api ", "generic", "healthcare",
+                            "usfda", "fda ", "formulation", "medicine", "hospital"),
+    "materials": ("steel", "metal", "aluminium", "aluminum", "copper", "zinc",
+                  "chemical", "cement", "iron ore", "mining", "specialty chem"),
+    "energy": ("power", "electricity", "coal", "oil ", "gas ", "renewable",
+               "solar", "wind ", "energy", "discom", "petroleum", "ethanol"),
+    "consumer discretionary": ("auto", "vehicle", "textile", "apparel", "garment",
+                               "retail", "consumer durable", "appliance", "footwear"),
+    "consumer staples": ("fmcg", "food ", "edible oil", "sugar", "dairy", "staple",
+                         "agri", "fertiliser", "fertilizer"),
+    "industrials": ("infra", "capex", "defence", "defense", "railway", "rail ",
+                    "construction", "engineering", "capital goods", "shipbuilding"),
+    "real estate": ("real estate", "realty", "housing", "property", "rera"),
+    "communication": ("telecom", "spectrum", "5g", "media", "broadband", "agr "),
+}
+
+
+def _industry_keywords(targets: set) -> set:
+    """Industry words a policy headline/snippet must mention to be relevant."""
+    kw: set = set()
+    for t in targets:
+        if t in _SECTOR_KEYWORDS:
+            kw |= set(_SECTOR_KEYWORDS[t])
+        else:
+            # theme label (e.g. "textiles & apparel", "defence") → its own words
+            kw |= {w for w in re.findall(r"[a-z]{4,}", t)}
+    return kw
+
+
 def policy_drivers_for(sector: str = "", theme: str = "", is_hi: bool = True,
                        max_items: int = 2) -> list[dict]:
     """
     Policy headlines relevant to THIS stock's sector/theme and directionally
     consistent with its move. Returns [{text, url, date}] for the diagnosis.
 
-    Matching is EXACT on canonical sector/theme labels (both sides come from the
-    same controlled vocabulary) — never substring — so 'IT' no longer matches
-    'EV & Mobility' through the 'mobility' substring. Listicles are dropped.
+    Two-stage relevance: (1) EXACT canonical sector/theme tag overlap, then
+    (2) the headline OR snippet must EXPLICITLY name the industry (so generic
+    "impact on Indian markets and companies" pieces are dropped). The returned
+    text names the sector and carries the specific 'why' from the snippet.
     """
     targets = {s.strip().lower() for s in (sector, theme) if s and s.strip()}
     if not targets:
         return []
+    ind_kw = _industry_keywords(targets)
     want_pol = "positive" if is_hi else "negative"
     out: list[dict] = []
     for it in _fetch_policy_items():
         secs = {s.strip().lower() for s in it.get("sectors", [])}
-        if not (targets & secs):                 # exact canonical-label overlap
+        inter = targets & secs
+        if not inter:                              # exact canonical-label overlap
             continue
-        if _is_listicle(it.get("title", "")):     # no 'Top 5 stocks' pieces
-            continue
-        if not _is_actionable_policy(it.get("title", "")):  # no generic docs
+        title = it.get("title", "")
+        snip = (it.get("snippet", "") or "").strip()
+        blob = f"{title} {snip}".lower()
+        if ind_kw and not any(k in blob for k in ind_kw):
+            continue                               # must explicitly name the industry
+        if _is_listicle(title) or not _is_actionable_policy(title):
             continue
         if it.get("polarity") not in (want_pol, "neutral"):
             continue
-        out.append({"text": f"Policy/trade: {it['title']}",
-                    "url": it.get("url", ""), "date": it.get("date", "")})
+        _lab0 = sorted(inter)[0]
+        label = "IT" if _lab0 == "it" else _lab0.title()   # nice display label
+        text = f"{title} — bears on the {label} sector"
+        if snip:
+            text += f": {snip[:160]}"
+        out.append({"text": text, "url": it.get("url", ""), "date": it.get("date", "")})
         if len(out) >= max_items:
             break
     return out
