@@ -178,18 +178,44 @@ def _is_listicle(title: str) -> bool:
     """Drop 'Top 5 stocks to benefit'-style recommendation pieces from policy."""
     try:
         import analysis_utils as _au
-        return _au.is_junk_headline(title)
+        if _au.is_junk_headline(title):
+            return True
     except Exception:
-        low = (title or "").lower()
-        return any(p in low for p in
-                   ("top 5", "top 10", "5 stocks", "10 stocks", "stocks to",
-                    "shares to", "to benefit", "stocks &", "best stocks"))
+        pass
+    low = (title or "").lower()
+    return any(p in low for p in
+               ("top 5", "top 10", "5 stocks", "10 stocks", "stocks to",
+                "shares to", "to benefit", "stocks &", "best stocks"))
+
+
+# Generic / non-actionable documents that aren't a real catalyst.
+_GENERIC_DOC = (
+    "[pdf]", "after the crisis", "overview", "explained", "explainer", "history",
+    "what is", "guide to", "report on", "analysis of", "introduction",
+    "policy framework", "white paper", "primer", "background", "factsheet",
+)
+# A real policy catalyst names a concrete action.
+_ACTION_KW = (
+    "tariff", "duty", "cut", "hike", "slash", "scrap", "pli", "gst", "ban",
+    "fta", "free trade", "incentive", "subsidy", "budget", "export", "import",
+    "quota", "anti-dumping", "customs", "sop", "exempt", "levy", "waiver",
+)
+
+
+def _is_actionable_policy(title: str) -> bool:
+    """True only for headlines that describe a concrete, dated policy ACTION
+    (not a generic explainer / document / overview)."""
+    low = (title or "").lower()
+    if any(g in low for g in _GENERIC_DOC):
+        return False
+    return any(a in low for a in _ACTION_KW)
 
 
 def policy_context_block(max_items: int = 8) -> str:
     """Stock-agnostic policy/trade headlines for the macro prompt block."""
     items = [i for i in _fetch_policy_items()
-             if i.get("sectors") and not _is_listicle(i.get("title", ""))]
+             if i.get("sectors") and not _is_listicle(i.get("title", ""))
+             and _is_actionable_policy(i.get("title", ""))]
     if not items:
         return ""
     lines = [f"[INDIA POLICY & TRADE WATCH — as of {date.today():%d %b %Y}]"]
@@ -220,6 +246,8 @@ def policy_drivers_for(sector: str = "", theme: str = "", is_hi: bool = True,
         if not (targets & secs):                 # exact canonical-label overlap
             continue
         if _is_listicle(it.get("title", "")):     # no 'Top 5 stocks' pieces
+            continue
+        if not _is_actionable_policy(it.get("title", "")):  # no generic docs
             continue
         if it.get("polarity") not in (want_pol, "neutral"):
             continue

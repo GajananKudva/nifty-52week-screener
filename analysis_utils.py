@@ -841,26 +841,32 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
         pass
 
     # ── Classification + one-line headline ────────────────────────────────────
-    if "policy" in signals:
-        classification = "Policy / trade-driven"
+    # Priority: a genuine COMPANY-SPECIFIC catalyst (earnings trajectory or a
+    # named momentum origin) always wins the headline over sector-level signals
+    # (policy / theme / sector). Otherwise policy/theme/sector explain the move.
+    if "fundamental" in signals:
+        classification = "Fundamental re-rating"
+    elif "origin" in signals:
+        classification = "Company-catalyst-led"
     elif "theme" in signals:
         classification = f"Thematic {word}"
+    elif "policy" in signals:
+        classification = "Policy / trade-driven"
     elif "sector" in signals or "macro" in signals:
         classification = f"Sector-wide {word}"
-    elif "fundamental" in signals:
-        classification = "Fundamental re-rating"
     elif "analyst" in signals:
         classification = "Analyst-driven re-rating"
-    elif "momentum" in signals or "origin" in signals:
+    elif "momentum" in signals:
         classification = "Momentum-driven"
     else:
         classification = "Technical / low-news"
 
     headline = {
-        "Policy / trade-driven":    f"Linked to a trade/policy change affecting the {sector or 'sector'} — a sector-wide catalyst, not a single-company event.",
-        f"Thematic {word}":         f"Part of a cross-sector thematic move rather than a single-company event.",
-        f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move rather than a single-company event.",
         "Fundamental re-rating":    "Driven by the company's earnings trajectory rather than a one-off headline.",
+        "Company-catalyst-led":     f"Driven by a company-specific catalyst (see the momentum origin) — not a sector or policy move.",
+        f"Thematic {word}":         f"Part of a cross-sector thematic move rather than a single-company event.",
+        "Policy / trade-driven":    f"Linked to a trade/policy change affecting the {sector or 'sector'} — a sector-wide catalyst, not a single-company event.",
+        f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move rather than a single-company event.",
         "Analyst-driven re-rating": "Consistent with recent brokerage actions and price-target revisions.",
         "Momentum-driven":          f"Momentum-driven: price and volume are extending this {word}, with no single fresh catalyst this week.",
         "Technical / low-news":     f"No fresh company-specific catalyst — this {word} is technical and momentum-led.",
