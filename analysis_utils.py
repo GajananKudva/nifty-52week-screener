@@ -856,3 +856,6 @@ def needs_critique(result: dict) -> bool:
 
 # Thematic + stock-specific catalyst helpers: themes.theme_breadth() feeds
 # diagnose_move; exchange_filings feeds the stock-specific news pool in app.py.
+# Catalyst selection (rank_catalysts / score_catalyst_materiality / is_junk_headline)
+# is shared by the pre-analysis card and the deep-dive so both pick the same,
+# materiality-first, junk-filtered main catalyst.
