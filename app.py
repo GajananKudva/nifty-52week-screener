@@ -1631,12 +1631,21 @@ def _fetch_all_news_items(ticker: str, company: str, cutoff_days: int = 14) -> l
         return items
 
     # ── Run all 4 in parallel ─────────────────────────────────────────────────
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    # ── 5. NSE/BSE corporate announcements (often the earliest source) ────────
+    def _filings_news():
+        try:
+            import exchange_filings as _ef
+            return _ef.fetch_filings(ticker, company, days=cutoff_days)
+        except Exception:
+            return []
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {
             pool.submit(_yf_news):      "yfinance",
             pool.submit(_tavily_news):  "tavily",
             pool.submit(_newsapi_news): "newsapi",
             pool.submit(_exa_news):     "exa",
+            pool.submit(_filings_news): "filings",
         }
         for f in as_completed(futures, timeout=15):
             try:
@@ -1765,18 +1774,30 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         direction    = "52-week high" if is_hi else "52-week low"
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-        # ── Step 1: aggregate all news sources in parallel ────────────────────
-        # Compact slice (6 items / short snippets) keeps tokens minimal. Look
-        # back ~75 days (not just 14) so that when there's no news THIS week the
-        # model can still surface the event that STARTED the momentum run — which
-        # we then present as the momentum origin rather than a bare "stale" note.
-        news_context = _fetch_all_news_context(ticker, company,
-                                               max_items=6, max_snippet=110,
-                                               cutoff_days=75)
-
-        if not news_context:
-            # No news at all — return data-driven heuristic immediately
-            raise ValueError("no_news")
+        # ── Step 1: aggregate + materiality-rank the shared news pool ─────────
+        # Pull the FULL cached pool (the same data the deep-dive sees), then rank
+        # by materiality and drop junk/listicles ("5 stocks to watch", brokerage
+        # "buy" notes, pure price/technical pieces, circular "hits 52-week high")
+        # so the model only ever picks from genuine, company-named, price-moving
+        # events. Wider slice than before (top 10 / 220-char snippets) so the real
+        # catalyst is actually in view.
+        import analysis_utils as _au_rank
+        _all_items = _fetch_all_news_items(ticker, company, cutoff_days=75) or []
+        _ranked = _au_rank.rank_catalysts(
+            _all_items, company, clean_ticker, is_hi, max_age_days=75, min_score=1)
+        if not _ranked:
+            # Nothing material/company-specific — skip the LLM and fall back to
+            # the honest momentum-origin / no-catalyst path below.
+            raise ValueError("no_material")
+        from datetime import date as _date2
+        _today_s = _date2.today().strftime("%d %b %Y")
+        _lines = [f"[Ranked candidate catalysts as of {_today_s} — most material first]"]
+        for _it in _ranked[:10]:
+            _dt  = f"[{_it.get('date','')}]" if _it.get("date") else ""
+            _src = f"[{_it.get('source','')}]"
+            _sn  = f" — {_it.get('snippet','')[:220]}" if _it.get("snippet") else ""
+            _lines.append(f"{_src} {_dt} {_it.get('title','')}{_sn}")
+        news_context = "\n".join(_lines)
 
         _macro = _macro_sector_ctx(sector)
         _macro_block = (
@@ -1851,6 +1872,7 @@ Set is_stale=true if the most recent article you can find is older than 20 days 
             or "52 week" in headline.lower()
             or headline.lower().strip().endswith("high")
             or headline.lower().strip().endswith("low")
+            or _au_rank.is_junk_headline(headline)   # reject listicles/price-only
         )
         if _bad:
             raise ValueError("bad_headline")
@@ -2762,19 +2784,29 @@ def _fetch_yf_company_context(ticker: str) -> str:
     except Exception:
         pass
 
-    # ── Final description fallback: Screener.in "About" blurb ──────────────────
-    # FMP sometimes has no description for mid/small-cap NSE names and yfinance is
-    # geo-blocked on cloud — Screener.in works in both, so use it as a last resort.
-    # Only runs when we still have no description, so it's cheap in practice.
-    if not desc:
+    # ── Cloud-safe fallback: Screener.in (works where FMP/yfinance don't) ──────
+    # On Streamlit Cloud, FMP's free tier frequently has no profile for mid/small
+    # NSE names AND yfinance is geo-blocked, so the whole card came back empty.
+    # Screener.in works in both environments (no key), so use it for BOTH the
+    # description and key ratios whenever the profile is still empty/sparse.
+    if (not desc) or len(parts) < 2:
         try:
             if _SCREENER_OK:
                 _sc = build_screener_context(ticker) or ""
-                _i  = _sc.find("About:")
-                if _i >= 0:
-                    _about = _sc[_i + len("About:"):].split("\n")[0].strip()
-                    if len(_about) > 40:
-                        parts.insert(0, f"Business Description:\n{_about[:800]}")
+                if _sc:
+                    if not desc:
+                        _i = _sc.find("About:")
+                        if _i >= 0:
+                            _about = _sc[_i + len("About:"):].split("\n")[0].strip()
+                            if len(_about) > 40:
+                                desc = _about
+                                parts.insert(0, f"Business Description:\n{_about[:800]}")
+                    if not any(p.startswith("Key Ratios") for p in parts):
+                        _j = _sc.find("Key Ratios:")
+                        if _j >= 0:
+                            _kr = _sc[_j + len("Key Ratios:"):].split("\n")[0].strip()
+                            if _kr:
+                                parts.append(f"Key Ratios (Screener.in): {_kr[:300]}")
         except Exception:
             pass
 
@@ -3653,6 +3685,14 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
     with src_col3:
         with st.spinner("NSE/RBI: fetching India macro…"):
             india_ctx = build_india_macro_context() if _INDIA_MACRO_OK else ""
+            # Append India trade/policy watch (FTAs, tariffs, PLI, GST, bans).
+            try:
+                import policy_news as _pol_ctx
+                _policy_blk = _pol_ctx.policy_context_block()
+                if _policy_blk:
+                    india_ctx = (india_ctx + "\n\n" + _policy_blk) if india_ctx else _policy_blk
+            except Exception:
+                pass
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if india_ctx else "#F0B429"};">'
             f'{"✅ India macro + FII/DII loaded" if india_ctx else "⚠️ India macro unavailable"}</div>',
@@ -3905,9 +3945,23 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         _dx_origin = None
         try:
             _wide  = _fetch_all_news_items(ticker, name, cutoff_days=60) or []
+            # Optional LLM sentiment+entity guard (#6b): enable with
+            # POLICY_LLM_GUARD=1 in .env. Default OFF to protect Groq free-tier
+            # limits; the hardened keyword guard is used otherwise.
+            _llm_client = _llm_model = None
+            try:
+                if _AI_OK and str(_secret("POLICY_LLM_GUARD", "")).strip() in ("1", "true", "yes"):
+                    _llm_client = _OpenAI(
+                        api_key=_OPENAI_KEY,
+                        base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
+                    )
+                    _llm_model = _QUICK_MODEL
+            except Exception:
+                _llm_client = _llm_model = None
             _dx_origin = _au.pick_momentum_origin(
                 _wide, name, ticker.replace(".NS", "").replace(".BO", ""),
                 is_hi, max_age_days=60,
+                llm_client=_llm_client, llm_model=_llm_model or "",
             )
         except Exception:
             _dx_origin = None
@@ -3915,15 +3969,33 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             _dx_idx_pct, _dx_idx_name = _fetch_sector_index_move(row.get("sector", ""))
         except Exception:
             _dx_idx_pct, _dx_idx_name = (None, "")
+
+        # ── Thematic breadth (cross-sector basket: defence, railways, EV…) ────
+        _hi, _lo = st.session_state.get("_last_highs"), st.session_state.get("_last_lows")
+        _dx_theme, _dx_policy, _theme_name = None, [], ""
+        try:
+            import themes as _themes
+            _dx_theme = _themes.theme_breadth(ticker, _hi, _lo, is_hi)
+            _theme_name = (_dx_theme or {}).get("theme", "")
+            _canon_sector = _themes.normalise_sector(row.get("sector", ""))
+        except Exception:
+            _canon_sector = row.get("sector", "")
+        # ── Policy / trade catalyst (FTA, tariff, PLI, GST, ban) ──────────────
+        try:
+            import policy_news as _pol
+            _dx_policy = _pol.policy_drivers_for(_canon_sector, _theme_name, is_hi)
+        except Exception:
+            _dx_policy = []
+
         _diag = _au.diagnose_move(
             sector=row.get("sector", ""), ticker=ticker, is_hi=is_hi,
-            highs_df=st.session_state.get("_last_highs"),
-            lows_df=st.session_state.get("_last_lows"),
+            highs_df=_hi, lows_df=_lo,
             vsurge=vsurge, ret_1m=ret_1m, ret_3m=ret_3m, ret_6m=ret_6m, ret_1y=ret_1y,
             earnings_surprise_context=locals().get("earnings_surprise_ctx", ""),
             upgrades_context=locals().get("upgrades_ctx", ""),
             index_move_pct=_dx_idx_pct, index_name=_dx_idx_name,
             momentum_origin=_dx_origin,
+            theme_breadth=_dx_theme, policy_drivers=_dx_policy,
         )
     except Exception:
         _diag = {"classification": "", "headline": "", "drivers": []}

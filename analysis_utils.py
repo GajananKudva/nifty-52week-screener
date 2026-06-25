@@ -282,34 +282,119 @@ def sector_breadth(sector: str, ticker: str, highs_df, lows_df, is_hi: bool) -> 
 _NEG_WORDS = (
     "fear", "fears", "shock", "fall", "falls", "fell", "drop", "drops", "plunge",
     "plunges", "slump", "crash", "decline", "declines", "weak", "weakness", "loss",
-    "losses", "probe", "raid", "fraud", "downgrade", "downgrades", "cut", "cuts",
-    "warn", "warns", "warning", "concern", "concerns", "lawsuit", "ban", "penalty",
-    "fine", "default", "scam", "resign", "resigns", "exit", "slowdown", "miss",
-    "misses", "tariff", "tariffs", "headwind", "selloff", "sell-off", "bearish",
-    "worry", "worries", "risk", "risks", "pressure", "hurt", "drag", "slide",
+    "losses", "probe", "raid", "fraud", "downgrade", "downgrades", "downgraded",
+    "cut", "cuts", "warn", "warns", "warning", "concern", "concerns", "lawsuit",
+    "ban", "penalty", "fine", "default", "scam", "resign", "resigns", "exit",
+    "slowdown", "miss", "misses", "tariff", "tariffs", "headwind", "selloff",
+    "sell-off", "bearish", "worry", "worries", "risk", "risks", "pressure", "hurt",
+    "drag", "slide",
+    # expanded — distress / regulatory / operational
+    "halt", "halts", "halted", "suspend", "suspends", "suspended", "suspension",
+    "recall", "recalls", "recalled", "writeoff", "write-off", "writedown",
+    "impairment", "delist", "delisted", "delisting", "insolvency", "nclt",
+    "bankrupt", "bankruptcy", "litigation", "strike", "shutdown", "glitch",
+    "outage", "moratorium", "freeze", "frozen", "curb", "curbs", "embezzle",
+    "siphon", "qualified", "downturn", "stake-sale", "offload", "dumping",
 )
 _POS_WORDS = (
     "surge", "surges", "soar", "soars", "rally", "rallies", "jump", "jumps", "gain",
     "gains", "record", "profit", "profits", "beat", "beats", "win", "wins", "won",
-    "order", "orders", "bag", "bags", "secure", "secures", "upgrade", "upgrades",
-    "raise", "raises", "expansion", "expand", "acquire", "acquires", "acquisition",
-    "launch", "launches", "growth", "strong", "bullish", "approval", "approves",
+    "order", "orders", "bag", "bags", "bagged", "secure", "secures", "secured",
+    "upgrade", "upgrades", "upgraded", "raise", "raises", "expansion", "expand",
+    "expands", "acquire", "acquires", "acquisition", "launch", "launches",
+    "growth", "strong", "bullish", "approval", "approves", "approved", "cleared",
     "deal", "partnership", "buyback", "bonus", "dividend", "rise", "rises", "boost",
-    "outperform", "rerating", "re-rating",
+    "outperform", "outperforms", "rerating", "re-rating", "rerated",
+    # expanded — capital / balance-sheet / momentum catalysts
+    "commissioned", "commissioning", "fundraise", "fundraising", "qip",
+    "allotment", "demerger", "spinoff", "spin-off", "milestone", "highest",
+    "robust", "doubles", "doubled", "triples", "tripled", "accumulate",
+    "reappoint", "monetise", "monetize", "monetisation", "highs", "lifetime",
 )
 _ORIGIN_KW = (
     "result", "results", "earnings", "profit", "revenue", "order", "orders", "win",
     "wins", "contract", "acqui", "merger", "stake", "dividend", "bonus", "approval",
     "launch", "deal", "expansion", "capex", "guidance", "upgrade", "downgrade",
     "rating", "target", "buyback", "partnership", "qip", "fundrais",
+    "tariff", "duty", "fta", "pli", "subsidy", "ban", "policy",   # policy/trade catalysts
+    "demerger", "spin", "allotment", "preferential", "commission", "monet",
+    "pledge", "block deal", "bulk deal", "insolvency", "nclt", "recall",  # event types
+)
+
+# ── Phrase-level polarity overrides ───────────────────────────────────────────
+# Many single words flip meaning by context: a tariff / duty / tax / rate CUT is
+# bullish even though "tariff" and "cut" are both in _NEG_WORDS; a probe that is
+# DROPPED or a ban that is LIFTED is bullish even though "probe"/"ban" are
+# negative. Multi-word phrases are scored first and weighted more heavily than
+# the loose single-word lists, and their matched text is removed before
+# single-word scoring so the constituent words aren't double-counted.
+_POS_PHRASES = (
+    # trade / tariff / duty becoming cheaper or freer
+    "tariff cut", "tariff cuts", "tariff reduction", "tariff removed",
+    "tariff removal", "cuts tariff", "scraps tariff", "removes tariff",
+    "slashes tariff", "zero tariff", "tariff-free", "duty cut", "duty cuts",
+    "cuts duty", "scraps duty", "removes duty", "duty removed", "duty scrapped",
+    "zero duty", "duty free", "duty-free", "import duty cut", "free trade",
+    "trade deal", "trade pact", "trade agreement", "fta", "export incentive",
+    "export incentives", "pli scheme", "production linked", "production-linked",
+    "subsidy", "incentive scheme",
+    # taxes / rates becoming cheaper
+    "tax cut", "tax cuts", "gst cut", "rate cut", "rate cuts", "repo cut",
+    "duty hike on imports",   # protects domestic producers → bullish for them
+    # negative events being resolved
+    "ban lifted", "ban removed", "curbs eased", "curbs removed", "cleared of",
+    "clean chit", "no fraud", "no wrongdoing", "probe dropped", "probe closed",
+    "case dismissed", "case closed", "penalty waived", "fine waived",
+    "charges dropped",
+    # balance-sheet / ownership / ratings improving
+    "debt reduction", "debt reduced", "debt free", "stake buy", "stake purchase",
+    "promoter buying", "rating upgrade", "upgraded to", "credit rating upgrade",
+    # order / contract wins
+    "order win", "bags order", "wins order", "bags contract", "wins contract",
+    "l1 bidder", "lowest bidder",
+)
+_NEG_PHRASES = (
+    "tariff hike", "tariff hikes", "tariff war", "raises tariff", "duty hike",
+    "import duty hike", "tax hike", "gst hike", "rate hike", "repo hike",
+    "export ban", "import ban", "export curb", "export curbs", "export duty",
+    "anti-dumping", "trade war", "stake sale", "stake sold", "sells stake",
+    "block deal", "rating downgrade", "downgraded to", "credit rating downgrade",
+    "guidance cut", "guidance cuts", "dividend cut", "profit warning",
+    "ban imposed", "subsidy cut", "subsidy removed", "incentive withdrawn",
 )
 
 
+def _count_word_hits(words, text: str) -> int:
+    """Count whole-word matches (word-boundary aware, so 'win' won't match
+    'winter' and 'cut' won't match 'execute')."""
+    n = 0
+    for w in words:
+        if re.search(r"\b" + re.escape(w) + r"\b", text):
+            n += 1
+    return n
+
+
 def _sentiment_ok(title: str, is_hi: bool) -> bool:
-    """Direction guard: reject net-negative headlines for highs (and vice versa)."""
-    low = (title or "").lower()
-    pos = sum(1 for w in _POS_WORDS if w in low)
-    neg = sum(1 for w in _NEG_WORDS if w in low)
+    """Direction guard with phrase-awareness.
+
+    Single keywords are context-blind ("tariff CUT" is bullish even though both
+    'tariff' and 'cut' are negative words), so multi-word phrases are scored
+    first, weighted x2, and stripped from the text before the single-word lists
+    are applied. Single words are matched on word boundaries to avoid substring
+    false positives. Rejects net-negative headlines for highs (and vice versa).
+    """
+    low = f" {(title or '').lower()} "
+    pos = neg = 0
+    for p in _POS_PHRASES:
+        if p in low:
+            pos += 2
+            low = low.replace(p, " ")
+    for p in _NEG_PHRASES:
+        if p in low:
+            neg += 2
+            low = low.replace(p, " ")
+    pos += _count_word_hits(_POS_WORDS, low)
+    neg += _count_word_hits(_NEG_WORDS, low)
     return (pos >= neg) if is_hi else (neg >= pos)
 
 
@@ -322,11 +407,171 @@ def _title_names_company(title: str, company: str, clean_ticker: str) -> bool:
     return any(tok in low for tok in _significant_name_tokens(company))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Optional LLM sentiment + entity guard (#6b)
+# ──────────────────────────────────────────────────────────────────────────────
+# The keyword guard above is fast and offline but still finite. When a tiny,
+# cheap LLM client is available, this resolves the two judgements the keyword
+# lists do crudely — (a) does the headline NAME this company, and (b) is it
+# bullish/bearish for it — in one call. Returns None on ANY failure so callers
+# transparently fall back to the keyword guard. `client` is an OpenAI-compatible
+# client (works with Groq via base_url), `model` a small/fast model id.
+
+def llm_relevance_check(title: str, company: str, clean_ticker: str, is_hi: bool,
+                        client, model: str) -> Optional[dict]:
+    """Return {'names_company': bool, 'direction_ok': bool} or None on failure."""
+    if not (client and model and title):
+        return None
+    try:
+        want = "bullish (would push the stock toward a 52-week HIGH)" if is_hi \
+            else "bearish (would push the stock toward a 52-week LOW)"
+        sys = ("You are a precise equity-news classifier. Given a headline and a "
+               "target company, answer ONLY with compact JSON: "
+               '{"names_company": true/false, "direction": "bullish"/"bearish"/"neutral"}. '
+               "names_company is true only if the headline is about THAT company "
+               "(not a peer/parent/subsidiary).")
+        usr = (f"Target company: {company} (ticker {clean_ticker}).\n"
+               f"Headline: {title!r}\n"
+               f"We are checking whether this could be the catalyst for a move that is {want}.")
+        resp = client.chat.completions.create(
+            model=model, temperature=0, max_tokens=40,
+            messages=[{"role": "system", "content": sys},
+                      {"role": "user", "content": usr}],
+        )
+        import json as _json
+        raw = (resp.choices[0].message.content or "").strip()
+        raw = raw[raw.find("{"): raw.rfind("}") + 1]
+        data = _json.loads(raw)
+        names = bool(data.get("names_company"))
+        direction = str(data.get("direction", "")).lower()
+        direction_ok = (direction == "bullish") if is_hi else (direction == "bearish")
+        # neutral is permissive (don't reject), mirroring the keyword guard's >=.
+        if direction == "neutral":
+            direction_ok = True
+        return {"names_company": names, "direction_ok": direction_ok}
+    except Exception:
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Catalyst materiality scoring + junk filter (shared by the card AND deep-dive)
+# ──────────────────────────────────────────────────────────────────────────────
+# A small model on a thin news slice tends to grab whatever headline is on top —
+# often a listicle ("5 stocks to watch"), a brokerage "buy" note, a pure
+# technical/price piece, or the circular "stock hits 52-week high". These must
+# never be presented as the MAIN catalyst. We (1) blocklist those shapes and
+# (2) score the rest by how concrete/price-moving the event is, so selection is
+# materiality-first instead of recency-first.
+
+_JUNK_PATTERNS = (
+    "stocks to buy", "stocks to watch", "stocks to add", "stocks to keep",
+    "top picks", "stock picks", "buy or sell", "should you buy", "should you sell",
+    "should investors", "what should", "here's why", "heres why", "multibagger",
+    "stocks in focus", "stocks in news", "best stocks", "top gainers",
+    "top losers", "f&o ban", "market wrap", "closing bell", "opening bell",
+    "trade setup", "technical view", "technical outlook", "chart check",
+    "stocks that hit", "hits 52-week high", "hits 52 week high", "hit 52-week",
+    "at 52-week high", "at 52-week low", "52-week high today", "52-week low today",
+    "near 52-week", "nears 52-week", "nearing 52-week", "price target by",
+    "5 stocks", "10 stocks", "3 stocks", "7 stocks", "watchlist", "nifty today",
+    "sensex today", "muhurat", "stocks to look", "shares to buy", "what to expect",
+    "things to know", "to watch out", "stock radar", "stock of the day",
+)
+
+# concrete, price-moving company events -> weight
+_MATERIAL_KW = (
+    ("order", 3), ("contract", 3), ("bags", 3), ("awarded", 3), ("win", 3),
+    ("won", 3), ("result", 3), ("results", 3), ("profit", 3), ("revenue", 3),
+    ("earnings", 3), ("acqui", 3), ("merger", 3), ("buyback", 3), ("qip", 3),
+    ("fundrais", 3), ("approval", 3), ("approved", 3), ("demerger", 3),
+    ("tariff", 3), ("duty", 3), ("fta", 3), ("pli", 3), ("patent", 3),
+    ("stake", 2), ("dividend", 2), ("bonus", 2), ("preferential", 2),
+    ("launch", 2), ("capacity", 2), ("expansion", 2), ("capex", 2),
+    ("guidance", 2), ("upgrade", 2), ("downgrade", 2), ("rating", 2),
+    ("deal", 2), ("partnership", 2), ("commission", 2), ("ban", 2),
+    ("acquisition", 3),
+)
+
+# Minimum score for a headline to count as a genuine "major catalyst".
+MIN_MATERIALITY = 3
+
+
+def is_junk_headline(title: str) -> bool:
+    """True for listicles / recommendations / pure-price commentary that must
+    never be shown as the main catalyst."""
+    low = (title or "").lower().strip()
+    if not low:
+        return True
+    return any(p in low for p in _JUNK_PATTERNS)
+
+
+def _has_figure(title: str) -> bool:
+    return bool(re.search(
+        r"(\d+(?:\.\d+)?\s?%|rs\.?\s?\d|₹\s?\d|\$\s?\d|"
+        r"\d+\s?(?:cr|crore|lakh|million|billion|bn|mn))",
+        (title or "").lower()))
+
+
+def score_catalyst_materiality(title: str) -> int:
+    """0 = junk/no real event; higher = more concrete & price-moving."""
+    if is_junk_headline(title):
+        return 0
+    low = (title or "").lower()
+    score = 0
+    seen = set()
+    for kw, w in _MATERIAL_KW:
+        if kw in seen:
+            continue
+        if re.search(r"\b" + re.escape(kw), low):
+            score += w
+            seen.add(kw)
+    if _has_figure(title):
+        score += 3
+    return score
+
+
+def rank_catalysts(items, company, clean_ticker, is_hi,
+                   max_age_days: int = 75, today=None, min_score: int = 1):
+    """
+    Shared catalyst selector: material, company-named, direction-consistent news,
+    sorted by (materiality desc, recency desc). Junk/listicles removed. Returns a
+    list of the original item dicts (best first); empty when nothing qualifies.
+    """
+    if not items:
+        return []
+    today = today or datetime.now().date()
+    floor = today - timedelta(days=max_age_days)
+    scored = []
+    for it in items:
+        title = it.get("title", "")
+        if not title or is_junk_headline(title):
+            continue
+        if "summary" in str(it.get("source", "")).lower():
+            continue
+        d = _parse_date(it.get("date", ""))
+        if d is not None and (d < floor or d > today):
+            continue
+        if not _title_names_company(title, company, clean_ticker):
+            continue
+        if not _sentiment_ok(title, is_hi):
+            continue
+        s = score_catalyst_materiality(title)
+        if s < min_score:
+            continue
+        scored.append((s, d or floor, it))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [it for _s, _d, it in scored]
+
+
 def pick_momentum_origin(items, company, clean_ticker, is_hi,
-                         max_age_days: int = 45, today=None):
+                         max_age_days: int = 45, today=None,
+                         llm_client=None, llm_model: str = ""):
     """
     Choose the news event most plausibly behind a 52-week move. See module note
     above for the guards. Returns {title, date, url} or None.
+
+    If `llm_client`/`llm_model` are supplied, the entity + direction judgement is
+    made by the LLM (with the keyword guard as automatic fallback per-headline).
     """
     if not items:
         return None
@@ -339,21 +584,31 @@ def pick_momentum_origin(items, company, clean_ticker, is_hi,
             continue
         if "summary" in str(it.get("source", "")).lower():
             continue
+        if is_junk_headline(title):       # never let listicles/price pieces win
+            continue
         d = _parse_date(it.get("date", ""))
         if d is None or d < floor or d > today:
             continue
-        if not _title_names_company(title, company, clean_ticker):
-            continue
-        if not _sentiment_ok(title, is_hi):
-            continue
+
+        verdict = llm_relevance_check(title, company, clean_ticker, is_hi,
+                                      llm_client, llm_model) if llm_client else None
+        if verdict is not None:
+            if not verdict["names_company"] or not verdict["direction_ok"]:
+                continue
+        else:
+            if not _title_names_company(title, company, clean_ticker):
+                continue
+            if not _sentiment_ok(title, is_hi):
+                continue
         qualified.append((d, it))
     if not qualified:
         return None
-    # Prefer genuine catalyst-type headlines; among those, the most recent wins.
+    # Prefer genuine catalyst-type headlines; among those, the most MATERIAL,
+    # then the most recent (materiality-first beats recency-first).
     cat = [(d, it) for (d, it) in qualified
            if any(k in it["title"].lower() for k in _ORIGIN_KW)]
     pool = cat or qualified
-    d, o = max(pool, key=lambda x: x[0])
+    d, o = max(pool, key=lambda x: (score_catalyst_materiality(x[1]["title"]), x[0]))
     return {"title": o["title"],
             "date": o.get("date") or d.strftime("%Y-%m-%d"),
             "url": o.get("url", "")}
@@ -420,10 +675,14 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
                   vsurge=None, ret_1m=None, ret_3m=None, ret_6m=None, ret_1y=None,
                   earnings_surprise_context="", upgrades_context="",
                   index_move_pct=None, index_name="",
-                  momentum_origin=None) -> dict:
+                  momentum_origin=None, theme_breadth=None, policy_drivers=None) -> dict:
     """
     Deterministic 'why did this move?' diagnosis for the no-fresh-news case.
     Returns {classification, headline, drivers:[{icon,label,text,url}], breadth_line}.
+
+    Extra (optional, already-fetched by the caller — zero work here):
+      theme_breadth  : dict from themes.theme_breadth()        -> cross-sector thematic move
+      policy_drivers : list from policy_news.policy_drivers_for -> trade/policy catalyst
     """
     word    = "high" if is_hi else "low"
     drivers = []
@@ -460,6 +719,21 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
                         f"Multiple {sector} names hit 52-week {word}s today.", "url": ""})
     elif breadth_line:
         drivers.append({"icon": "📊", "label": "Breadth", "text": breadth_line, "url": ""})
+
+    # ── B2. Thematic breadth (cross-sector basket: defence, railways, EV…) ─────
+    if isinstance(theme_breadth, dict) and theme_breadth.get("line"):
+        signals.append("theme")
+        drivers.append({"icon": "🧩", "label": "Thematic move",
+                        "text": theme_breadth["line"], "url": ""})
+
+    # ── B3. Policy / trade catalyst (FTA, tariff/duty, PLI, GST, ban) ──────────
+    for _pdrv in (policy_drivers or [])[:2]:
+        if isinstance(_pdrv, dict) and _pdrv.get("text"):
+            signals.append("policy")
+            _pdt = _pdrv.get("date", "")
+            drivers.append({"icon": "🏛", "label": "Policy / trade",
+                            "text": _pdrv["text"] + (f" ({_pdt})" if _pdt else ""),
+                            "url": _pdrv.get("url", "")})
 
     # ── E. Sector / macro tailwind ────────────────────────────────────────────
     try:
@@ -524,7 +798,11 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
         pass
 
     # ── Classification + one-line headline ────────────────────────────────────
-    if "sector" in signals or "macro" in signals:
+    if "policy" in signals:
+        classification = "Policy / trade-driven"
+    elif "theme" in signals:
+        classification = f"Thematic {word}"
+    elif "sector" in signals or "macro" in signals:
         classification = f"Sector-wide {word}"
     elif "fundamental" in signals:
         classification = "Fundamental re-rating"
@@ -536,6 +814,8 @@ def diagnose_move(*, sector="", ticker="", is_hi=True, highs_df=None, lows_df=No
         classification = "Technical / low-news"
 
     headline = {
+        "Policy / trade-driven":    f"Linked to a trade/policy change affecting the {sector or 'sector'} — a sector-wide catalyst, not a single-company event.",
+        f"Thematic {word}":         f"Part of a cross-sector thematic move rather than a single-company event.",
         f"Sector-wide {word}":      f"Part of a broad {sector or 'sector'} move rather than a single-company event.",
         "Fundamental re-rating":    "Driven by the company's earnings trajectory rather than a one-off headline.",
         "Analyst-driven re-rating": "Consistent with recent brokerage actions and price-target revisions.",
@@ -572,3 +852,7 @@ def needs_critique(result: dict) -> bool:
     """True if deterministic checks found problems worth a self-critique LLM pass."""
     ver = result.get("_verification", {}) if isinstance(result, dict) else {}
     return bool(ver.get("dates_flagged", 0) or ver.get("entities_removed", 0))
+
+
+# Thematic + stock-specific catalyst helpers: themes.theme_breadth() feeds
+# diagnose_move; exchange_filings feeds the stock-specific news pool in app.py.
