@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-06-29T22:53:50.150975+00:00",
-  "generated_at_ist": "30 Jun 2026 · 04:23 IST",
-  "duration_seconds": 192.7,
+  "generated_at_utc": "2026-06-30T00:00:21.191223+00:00",
+  "generated_at_ist": "30 Jun 2026 · 05:30 IST",
+  "duration_seconds": 140.2,
   "universe_size": 2374,
   "params": {
     "high_low_window": 252,
@@ -574,7 +574,7 @@
     },
     {
       "ticker": "ACMESOLAR.NS",
-      "company_name": "ACME Solar Holdings Limited",
+      "company_name": "ACME SOLAR HOLDINGS LTD",
       "sector": "Utilities",
       "industry": "Utilities - Renewable",
       "current_price": 357.2,
@@ -1505,7 +1505,7 @@
       "ret_3m": 41.09,
       "ret_6m": 115.07,
       "ret_1y": 97.95,
-      "market_cap": 17824940032.0,
+      "market_cap": 17850599424.0,
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
       "news_headlines": [],
