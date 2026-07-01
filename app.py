@@ -2391,7 +2391,7 @@ def _fallback_deep_dive(ticker, company, sector, signal,
         err_note = f"AI provider rate limit reached ({_LLM_PROVIDER})."
         action   = "Wait ~30–60s, then click Retry Analysis. Tip: set FALLBACK_MODEL, screen a smaller universe, or raise your provider tier."
     elif error:
-        err_note = f"AI error: {error[:120]}"
+        err_note = f"AI error: {error[:300]}"
         action   = "Click Retry Analysis to try again."
     else:
         err_note = "AI API key not configured"
@@ -2399,6 +2399,9 @@ def _fallback_deep_dive(ticker, company, sector, signal,
     return {
         "sentiment":     "Neutral",
         "confidence":    "Low",
+        "ai_error":      (error or "")[:600],   # raw provider error for the UI
+        "ai_provider":   _LLM_PROVIDER,
+        "ai_model":      _OPENAI_MODEL,
         "business_model": f"{company} operates in {_sector_txt}. Detailed description unavailable — {err_note}",
         "primary_catalyst": {
             "headline": f"{company} is at its {level}",
@@ -4046,12 +4049,30 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 '</div>'
             )
         else:
+            import html as _html_err
+            _raw_err = str(analysis.get("ai_error", "")).strip()
+            _prov    = analysis.get("ai_provider", _LLM_PROVIDER)
+            _mdl     = analysis.get("ai_model", _OPENAI_MODEL)
+            if _raw_err:
+                # A real provider error came back — show it verbatim so the
+                # actual cause (bad param, model name, credits, auth) is visible.
+                _detail_html = (
+                    f'The AI call to <code>{_html_err.escape(str(_prov))}</code> '
+                    f'(model <code>{_html_err.escape(str(_mdl))}</code>) failed:<br>'
+                    f'<span style="color:#F0B429;font-family:monospace;font-size:12px;">'
+                    f'{_html_err.escape(_raw_err)}</span>'
+                )
+            else:
+                _detail_html = (
+                    'Could not connect to the AI model — no API key detected. '
+                    'Check your key in Streamlit secrets.<br>'
+                    '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY / PERPLEXITY_API_KEY'
+                )
             _box = (
                 '<div style="font-size:13px;font-weight:700;color:#F0B429;'
                 'margin-bottom:8px;">⚠️ AI Analysis Unavailable</div>'
                 '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
-                'Could not connect to the AI model. Check your API key in Streamlit secrets.<br>'
-                '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY / PERPLEXITY_API_KEY'
+                + _detail_html +
                 '</div>'
             )
         st.markdown(
