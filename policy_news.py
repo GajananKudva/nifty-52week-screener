@@ -64,7 +64,8 @@ _TAG_MAP: list[tuple[tuple[str, ...], list[str]]] = [
      ["Industrials", "Defence"]),
     (("railway", "rail ", "vande bharat"), ["Industrials", "Railways"]),
     (("sugar", "ethanol", "molasses"), ["Consumer Staples", "Sugar & Ethanol"]),
-    (("it ", "software", "h-1b", "tech services"), ["IT"]),
+    (("software", "information technology", "it services", "it sector",
+      "tech services", "h-1b", "h1-b", "saas", "bpo", "it exports"), ["IT"]),
     (("bank", "nbfc", "rbi", "lending", "microfinance"), ["Financials"]),
     (("fmcg", "food", "edible oil", "palm"), ["Consumer Staples"]),
     (("real estate", "realty", "housing", "rera"), ["Real Estate"]),
@@ -193,6 +194,8 @@ _GENERIC_DOC = (
     "[pdf]", "after the crisis", "overview", "explained", "explainer", "history",
     "what is", "guide to", "report on", "analysis of", "introduction",
     "policy framework", "white paper", "primer", "background", "factsheet",
+    "frequently asked questions", "faq", "q&a", "everything you need to know",
+    "all you need to know", "how does", "meaning of", "definition of",
 )
 # A real policy catalyst names a concrete action.
 _ACTION_KW = (
@@ -213,9 +216,12 @@ def _is_actionable_policy(title: str) -> bool:
 
 def policy_context_block(max_items: int = 8) -> str:
     """Stock-agnostic policy/trade headlines for the macro prompt block."""
-    items = [i for i in _fetch_policy_items()
-             if i.get("sectors") and not _is_listicle(i.get("title", ""))
-             and _is_actionable_policy(i.get("title", ""))]
+    def _keep(i):
+        blob = f"{i.get('title','')} {i.get('snippet','')}".lower()
+        return (i.get("sectors") and not _is_listicle(i.get("title", ""))
+                and _is_actionable_policy(i.get("title", ""))
+                and not any(g in blob for g in _GENERIC_DOC))
+    items = [i for i in _fetch_policy_items() if _keep(i)]
     if not items:
         return ""
     lines = [f"[INDIA POLICY & TRADE WATCH — as of {date.today():%d %b %Y}]"]
@@ -231,8 +237,9 @@ def policy_context_block(max_items: int = 8) -> str:
 # false-positives (e.g. "it " won't match "deposit"). Generic pieces about
 # "Indian markets and companies" carry none of these and are dropped.
 _SECTOR_KEYWORDS = {
-    "it": ("it ", "i.t.", "software", "tech ", "technology", "saas", "fintech",
-           "it services", "it sector", "bfsi", "digital", "h-1b", "h1-b"),
+    "it": ("software", "information technology", "it services", "it sector",
+           "it exports", "it firms", "it companies", "saas", "fintech", "bfsi",
+           "tech services", "bpo", "h-1b", "h1-b"),
     "financials": ("bank", "banking", "nbfc", "lending", "insurance", "insurer",
                    "finance", "financial", "microfinance", "fintech", "credit"),
     "pharma & healthcare": ("pharma", "drug", "api ", "generic", "healthcare",
@@ -289,6 +296,8 @@ def policy_drivers_for(sector: str = "", theme: str = "", is_hi: bool = True,
         title = it.get("title", "")
         snip = (it.get("snippet", "") or "").strip()
         blob = f"{title} {snip}".lower()
+        if any(g in blob for g in _GENERIC_DOC):   # drop explainers/FAQ/overviews
+            continue
         if ind_kw and not any(k in blob for k in ind_kw):
             continue                               # must explicitly name the industry
         if _is_listicle(title) or not _is_actionable_policy(title):
