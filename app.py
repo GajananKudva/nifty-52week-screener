@@ -66,18 +66,110 @@ def _secret(key: str, default: str = "") -> str:
     return val or default
 
 
-# ── AI client — supports OpenAI and Groq (same SDK, different base_url) ──────
-# Set LLM_PROVIDER=groq in .env to use Groq's free tier (llama-3.3-70b-versatile)
-# Set LLM_PROVIDER=openai (or leave blank) for OpenAI
-_LLM_PROVIDER = _secret("LLM_PROVIDER", "openai").lower()
+# ── AI client — OpenAI, Groq, or Perplexity (all share the OpenAI SDK) ───────
+# Set LLM_PROVIDER=groq        → Groq free tier (llama-3.3-70b-versatile)
+# Set LLM_PROVIDER=perplexity  → Perplexity Sonar (grounded web search built in)
+# Set LLM_PROVIDER=openai (or leave blank) → OpenAI
+_LLM_PROVIDER  = _secret("LLM_PROVIDER", "openai").lower()
 _GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_PPLX_BASE_URL = "https://api.perplexity.ai"
+
+
+def _llm_base_url() -> Optional[str]:
+    """OpenAI-compatible base URL for the active provider (None = OpenAI native)."""
+    if _LLM_PROVIDER == "groq":
+        return _GROQ_BASE_URL
+    if _LLM_PROVIDER == "perplexity":
+        return _PPLX_BASE_URL
+    return None
+
+
+# Perplexity Sonar grounds its own web search. Whitelisting Indian + tier-1
+# financial domains keeps retrieval on NSE/BSE/ET/Mint/MoneyControl/Reuters
+# instead of skewing to general/US sources that miss small/mid-cap coverage.
+_PPLX_DOMAINS = [
+    d.strip() for d in _secret(
+        "PERPLEXITY_SEARCH_DOMAINS",
+        "nseindia.com,bseindia.com,moneycontrol.com,"
+        "economictimes.indiatimes.com,livemint.com,reuters.com",
+    ).split(",") if d.strip()
+][:20]  # Perplexity caps the domain filter at 20 entries
+_PPLX_RECENCY = _secret("PERPLEXITY_RECENCY", "month").strip()  # month|week|day|hour
+
+
+def _pplx_extra_body(context_size: str = "low") -> dict:
+    """Perplexity-only search controls. Empty dict for OpenAI/Groq (ignored)."""
+    if _LLM_PROVIDER != "perplexity":
+        return {}
+    body: dict = {"web_search_options": {"search_context_size": context_size}}
+    if _PPLX_DOMAINS:
+        body["search_domain_filter"] = _PPLX_DOMAINS
+    if _PPLX_RECENCY:
+        body["search_recency_filter"] = _PPLX_RECENCY
+    return body
+
+
+def _pplx_citations(response) -> list:
+    """Sonar's grounded citations/search_results — its own source-of-truth URLs."""
+    if _LLM_PROVIDER != "perplexity":
+        return []
+    urls: list = []
+    try:
+        dump = response.model_dump()
+    except Exception:
+        dump = {}
+    for u in (dump.get("citations") or []):
+        if isinstance(u, str) and u.startswith("http"):
+            urls.append(u)
+    for sr in (dump.get("search_results") or []):
+        u = (sr or {}).get("url", "")
+        if isinstance(u, str) and u.startswith("http"):
+            urls.append(u)
+    # de-dupe, preserve order
+    seen: set = set()
+    return [u for u in urls if not (u in seen or seen.add(u))]
+
+
+# ── Cost guard — per-session call counter + rough running cost (Perplexity) ──
+# USD per 1M tokens (input, output) and per-call request fee by search context.
+_PPLX_PRICING = {
+    "sonar":               {"in": 1.0, "out": 1.0,  "req": {"low": 0.005, "medium": 0.008, "high": 0.012}},
+    "sonar-pro":           {"in": 3.0, "out": 15.0, "req": {"low": 0.006, "medium": 0.010, "high": 0.014}},
+    "sonar-reasoning":     {"in": 1.0, "out": 5.0,  "req": {"low": 0.005, "medium": 0.008, "high": 0.012}},
+    "sonar-reasoning-pro": {"in": 2.0, "out": 8.0,  "req": {"low": 0.006, "medium": 0.010, "high": 0.014}},
+}
+
+
+def _track_llm_call(model: str, response=None, context_size: str = "low") -> None:
+    """Increment the session call counter and accumulate an estimated cost."""
+    try:
+        st.session_state["_llm_call_count"] = st.session_state.get("_llm_call_count", 0) + 1
+        if _LLM_PROVIDER != "perplexity":
+            return
+        price = _PPLX_PRICING.get((model or "").lower())
+        if not price:
+            return
+        usage = getattr(response, "usage", None)
+        it = getattr(usage, "prompt_tokens", 0) or 0
+        ot = getattr(usage, "completion_tokens", 0) or 0
+        cost = (it / 1e6) * price["in"] + (ot / 1e6) * price["out"]
+        cost += price["req"].get(context_size, price["req"]["low"])
+        st.session_state["_llm_cost_usd"] = st.session_state.get("_llm_cost_usd", 0.0) + cost
+    except Exception:
+        pass
+
 
 try:
     from openai import OpenAI as _OpenAI
-    _OPENAI_KEY   = _secret("OPENAI_API_KEY")
-    _OPENAI_MODEL = _secret("OPENAI_MODEL",
-                            "llama-3.3-70b-versatile" if _LLM_PROVIDER == "groq"
-                            else "gpt-4o-mini")
+    if _LLM_PROVIDER == "perplexity":
+        _OPENAI_KEY   = _secret("PERPLEXITY_API_KEY") or _secret("OPENAI_API_KEY")
+        _OPENAI_MODEL = _secret("OPENAI_MODEL", "sonar-pro")   # deep-dive default
+    elif _LLM_PROVIDER == "groq":
+        _OPENAI_KEY   = _secret("OPENAI_API_KEY") or _secret("GROQ_API_KEY")
+        _OPENAI_MODEL = _secret("OPENAI_MODEL", "llama-3.3-70b-versatile")
+    else:
+        _OPENAI_KEY   = _secret("OPENAI_API_KEY")
+        _OPENAI_MODEL = _secret("OPENAI_MODEL", "gpt-4o-mini")
     _AI_OK        = bool(_OPENAI_KEY)
 except ImportError:
     _AI_OK        = False
@@ -153,9 +245,13 @@ _SELF_CRITIQUE = _secret("SELF_CRITIQUE", "off").lower() in ("1", "true", "yes",
 #                     for deep dives. Plenty for a one-line catalyst headline.
 #  • FALLBACK_MODEL — used for a deep dive only when the primary model is 429'd.
 _QUICK_MODEL    = _secret("QUICK_MODEL",
-                          "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq" else _OPENAI_MODEL)
+                          "sonar" if _LLM_PROVIDER == "perplexity"
+                          else "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq"
+                          else _OPENAI_MODEL)
 _FALLBACK_MODEL = _secret("FALLBACK_MODEL",
-                          "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq" else "")
+                          "sonar" if _LLM_PROVIDER == "perplexity"
+                          else "llama-3.1-8b-instant" if _LLM_PROVIDER == "groq"
+                          else "")
 
 # ── Engine import (graceful fallback to mock data) ────────────────────────────
 try:
@@ -1805,8 +1901,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
             f"global risk-on/off — NOT the company's own catalyst):\n{_macro}\n\n"
         ) if _macro else ""
 
-        # ── Step 2: single Groq call with full context ────────────────────────
-        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_GROQ_BASE_URL)
+        # ── Step 2: single LLM call with full context ─────────────────────────
+        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_llm_base_url())
 
         system_msg = f"""You are a senior equity analyst at a top-tier Indian brokerage. Today is {today}.
 
@@ -1850,17 +1946,29 @@ Set is_stale=true if the most recent article you can find is older than 20 days 
             f"\"{company} — no verified catalyst found\" and is_stale=true."
         )
 
+        _quick_kwargs: dict = {"temperature": 0.1, "max_tokens": 300,
+                               "extra_body": _pplx_extra_body("low")}
+        # Perplexity supports json_schema only (not json_object); the prompt already
+        # mandates raw JSON and we extract it defensively below.
+        if _LLM_PROVIDER != "perplexity":
+            _quick_kwargs["response_format"] = {"type": "json_object"}
         resp   = client.chat.completions.create(
             model=_QUICK_MODEL,
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user",   "content": user_msg},
             ],
-            temperature=0.1,
-            max_tokens=300,
-            response_format={"type": "json_object"},
+            **_quick_kwargs,
         )
-        result = json.loads(resp.choices[0].message.content.strip())
+        _track_llm_call(_QUICK_MODEL, resp, "low")
+        _raw_quick = resp.choices[0].message.content.strip()
+        # Sonar sometimes wraps JSON in prose/citation markers — extract the object.
+        if not _raw_quick.startswith("{"):
+            import re as _re_q
+            _mq = _re_q.search(r"\{[\s\S]*\}", _raw_quick)
+            if _mq:
+                _raw_quick = _mq.group(0)
+        result = json.loads(_raw_quick)
 
         # ── Validate — reject bad fallback headlines ──────────────────────────
         headline = result.get("headline", "")
@@ -2135,12 +2243,20 @@ RULES (violations will make the output useless):
     import time as _time
     client = _OpenAI(
         api_key=_OPENAI_KEY,
-        base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
+        base_url=_llm_base_url(),
     )
     kwargs: dict = {"temperature": 0.1, "max_tokens": 2000}
-    _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1")
-    if not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS):
+    # Perplexity supports json_schema only (not json_object), so skip response_format
+    # for it entirely and rely on the prompt + JSON extraction below. Same for local
+    # reasoning models that emit JSON inside prose.
+    _NO_JSON_MODE_MODELS = ("deepseek", "qwq", "r1", "sonar")
+    if (_LLM_PROVIDER != "perplexity"
+            and not any(x in _OPENAI_MODEL.lower() for x in _NO_JSON_MODE_MODELS)):
         kwargs["response_format"] = {"type": "json_object"}
+    # Deep dive gets a richer (medium) search context; no-op for OpenAI/Groq.
+    _deep_extra = _pplx_extra_body("medium")
+    if _deep_extra:
+        kwargs["extra_body"] = _deep_extra
 
     # Retry with backoff on 429; try the primary model first, then a
     # higher-rate-limit fallback model before giving up.
@@ -2159,6 +2275,8 @@ RULES (violations will make the output useless):
                 ],
                 **kwargs,
             )
+            _track_llm_call(_use_model, response, "medium")
+            _sonar_cites = _pplx_citations(response)   # grounded source-of-truth URLs
             raw = response.choices[0].message.content.strip()
             # Strip DeepSeek R1 thinking tags
             if "<think>" in raw:
@@ -2177,13 +2295,21 @@ RULES (violations will make the output useless):
             result = json.loads(raw.strip())
 
             # ── Anti-hallucination: keep a catalyst URL only if it appears
-            #    verbatim in the context we actually gave the model ─────────────
+            #    verbatim in the context we fed the model — OR, for Perplexity,
+            #    if Sonar returned it as a grounded citation. Sonar's citations
+            #    are retrieved+verified server-side, so they're trustworthy even
+            #    though they were never in `all_context`. (The regex check exists
+            #    because Groq can't verify its own URLs; Sonar can.) ────────────
             _valid_urls = set(_re.findall(r'https?://[^\s\]\)"<>]+', all_context))
+            _valid_urls.update(_sonar_cites)
             def _clean_url(u: str) -> str:
                 u = (u or "").strip()
                 if u.startswith("http") and (u in all_context or u in _valid_urls):
                     return u
                 return ""
+            # Expose Sonar's grounded citations on the result for display/sourcing.
+            if _sonar_cites:
+                result["citations"] = _sonar_cites
             for _cat in result.get("catalysts", []) or []:
                 if isinstance(_cat, dict):
                     _cat["url"] = _clean_url(_cat.get("url", ""))
@@ -2220,6 +2346,7 @@ RULES (violations will make the output useless):
                                       {"role": "user",   "content": _crit_user}],
                             **kwargs,
                         )
+                        _track_llm_call(_OPENAI_MODEL, _cr, "medium")
                         _raw2 = _cr.choices[0].message.content.strip()
                         _m2 = _re.search(r"\{[\s\S]*\}", _raw2)
                         if _m2:
@@ -2261,14 +2388,14 @@ def _fallback_deep_dive(ticker, company, sector, signal,
     _is_rate = bool(error) and ("429" in error or "rate limit" in error.lower())
     _sector_txt = f"the {sector} sector" if sector else "an undisclosed sector"
     if _is_rate:
-        err_note = "AI provider rate limit reached (Groq free tier)."
-        action   = "Wait ~30–60s, then click Retry Analysis. Tip: set FALLBACK_MODEL or upgrade the Groq tier to avoid this."
+        err_note = f"AI provider rate limit reached ({_LLM_PROVIDER})."
+        action   = "Wait ~30–60s, then click Retry Analysis. Tip: set FALLBACK_MODEL, screen a smaller universe, or raise your provider tier."
     elif error:
         err_note = f"AI error: {error[:120]}"
         action   = "Click Retry Analysis to try again."
     else:
         err_note = "AI API key not configured"
-        action   = "Set LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY in secrets."
+        action   = "Set LLM_PROVIDER and the matching key (OPENAI_API_KEY / GROQ_API_KEY / PERPLEXITY_API_KEY) in secrets."
     return {
         "sentiment":     "Neutral",
         "confidence":    "Low",
@@ -3912,10 +4039,10 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 '<div style="font-size:13px;font-weight:700;color:#F0B429;'
                 'margin-bottom:8px;">⏳ AI Rate Limit Reached</div>'
                 '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
-                'The AI provider (Groq free tier) is temporarily throttled. '
+                f'The AI provider (<code>{_LLM_PROVIDER}</code>) is temporarily throttled. '
                 'Wait ~30–60 seconds and click Retry.<br>'
-                '<b>To avoid this:</b> set <code>FALLBACK_MODEL=llama-3.1-8b-instant</code>, '
-                'screen a smaller universe, or upgrade your Groq plan.'
+                '<b>To avoid this:</b> set a lighter <code>FALLBACK_MODEL</code>, '
+                'screen a smaller universe, or raise your provider tier.'
                 '</div>'
             )
         else:
@@ -3924,7 +4051,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 'margin-bottom:8px;">⚠️ AI Analysis Unavailable</div>'
                 '<div style="font-size:13px;color:#C9D1D9;line-height:1.7;">'
                 'Could not connect to the AI model. Check your API key in Streamlit secrets.<br>'
-                '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY'
+                '<b>Set:</b> LLM_PROVIDER and OPENAI_API_KEY / GROQ_API_KEY / PERPLEXITY_API_KEY'
                 '</div>'
             )
         st.markdown(
@@ -4007,7 +4134,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 if _AI_OK and str(_secret("POLICY_LLM_GUARD", "")).strip() in ("1", "true", "yes"):
                     _llm_client = _OpenAI(
                         api_key=_OPENAI_KEY,
-                        base_url=_GROQ_BASE_URL if _LLM_PROVIDER == "groq" else None,
+                        base_url=_llm_base_url(),
                     )
                     _llm_model = _QUICK_MODEL
             except Exception:
@@ -4468,6 +4595,30 @@ def _render_sidebar() -> dict:
                     del st.session_state[k]
                 st.success("AI cache cleared — run the screen again to refresh catalysts.")
                 st.rerun()
+
+        # ── LLM usage / cost guard ──────────────────────────────────────────
+        # Perplexity Sonar calls are billed per token + per request, so surface a
+        # running tally to avoid a surprise on the bill after a heavy screen day.
+        _calls = st.session_state.get("_llm_call_count", 0)
+        if _calls:
+            if _LLM_PROVIDER == "perplexity":
+                _cost = st.session_state.get("_llm_cost_usd", 0.0)
+                _usage_txt = f"{_calls} calls · ≈${_cost:,.3f} est."
+                _usage_hint = ("Estimated Perplexity spend this session "
+                               "(tokens + per-request search fee).")
+            else:
+                _usage_txt = f"{_calls} LLM calls this session"
+                _usage_hint = "Provider is not billed per call on this plan."
+            st.markdown(
+                '<div style="font-size:10px;font-weight:700;color:#6E7681;'
+                'letter-spacing:2px;text-transform:uppercase;margin:10px 0 4px;">LLM Usage</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                f'<div style="font-size:13px;color:#8B949E;" title="{_usage_hint}">'
+                f'💸 {_usage_txt}</div>',
+                unsafe_allow_html=True,
+            )
 
         st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 

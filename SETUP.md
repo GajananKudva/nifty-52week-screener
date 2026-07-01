@@ -61,9 +61,14 @@ Then open `.env` in any text editor and fill in your values:
 
 | Variable | Required | Description |
 |---|---|---|
-| `LLM_PROVIDER` | Yes | `openai` or `gemini` |
+| `LLM_PROVIDER` | Yes | `perplexity`, `openai`, or `groq` |
+| `PERPLEXITY_API_KEY` | If using Perplexity | From perplexity.ai/settings/api — Sonar grounds its own web search |
+| `OPENAI_MODEL` | Yes | Deep-dive model. Perplexity: `sonar-pro` (or `sonar-reasoning-pro`, ~35% cheaper output). OpenAI: `gpt-4o-mini`. Groq: `llama-3.3-70b-versatile` |
+| `QUICK_MODEL` | No | Fast pre-screen model. Perplexity default `sonar` |
+| `PERPLEXITY_SEARCH_DOMAINS` | No | Comma-separated allowlist (max 20). Defaults to NSE/BSE/ET/Mint/MoneyControl/Reuters so retrieval stays on Indian small/mid-cap coverage |
+| `PERPLEXITY_RECENCY` | No | `month` (default), `week`, `day`, or `hour` |
 | `OPENAI_API_KEY` | If using OpenAI | From platform.openai.com |
-| `GEMINI_API_KEY` | If using Gemini | From aistudio.google.com |
+| `GROQ_API_KEY` | If using Groq | From console.groq.com (free tier) |
 | `SMTP_USER` | Yes (for email) | Your Gmail address |
 | `SMTP_PASSWORD` | Yes (for email) | 16-char Gmail App Password (see below) |
 | `TO_EMAILS` | Yes (for email) | Comma-separated recipient list |
