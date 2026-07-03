@@ -4226,6 +4226,23 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
     primary = analysis.get("primary_catalyst", {})
+    # Sync the deep-dive's primary catalyst BACK to the card's quick cache so the
+    # card "Major Catalyst" and the report "Primary Driver" ALWAYS match — even when
+    # the quick pass found nothing but the thorough deep-dive did.
+    try:
+        if isinstance(primary, dict) and primary.get("headline") and not primary.get("no_catalyst"):
+            _sd = _clean_ai_text(primary.get("date", "") or "")
+            _sh = _clean_ai_text(primary.get("headline", ""))
+            st.session_state[f"quick_{ticker}_{sig}"] = {
+                "headline":      (f"{_sd}: {_sh}" if _sd else _sh)[:140],
+                "impact_pct":    primary.get("impact_pct", "N/A"),
+                "catalyst_date": _sd,
+                "is_stale":      False,
+                "source":        "Deep-dive",
+                "no_catalyst":   False,
+            }
+    except Exception:
+        pass
     if _is_stale_news:
         # Drivers already appear in the Move Diagnosis panel above — here we just
         # state the classification + headline as the primary driver.
