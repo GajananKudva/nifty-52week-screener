@@ -1885,6 +1885,33 @@ def _momentum_origin_and_breadth(ticker: str, company: str,
     return origin, breadth
 
 
+_CTX_DIR = Path(__file__).parent / "data" / "context"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_ctx_cache(ticker: str) -> dict:
+    """Pre-fetched background context for a stock (data/context/{TICKER}.json)."""
+    try:
+        p = _CTX_DIR / f"{ticker.replace('/', '_')}.json"
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+def _ctx_or_live(cache_val, live, enabled: bool) -> str:
+    """Prefer the pre-fetched cache; else live-fetch; '' if the source is disabled."""
+    if not enabled:
+        return ""
+    if cache_val:
+        return cache_val
+    try:
+        return live() or ""
+    except Exception:
+        return ""
+
+
 @st.cache_data(ttl=10800, show_spinner=False)   # 3h — macro/sector moves slowly
 def _macro_sector_ctx(sector: str = "", use_macro: bool = True,
                       use_finnhub: bool = True, use_fund: bool = True) -> str:
@@ -1946,10 +1973,6 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         _all_items = _fetch_all_news_items(ticker, company, cutoff_days=75) or []
         _ranked = _au_rank.rank_catalysts(
             _all_items, company, clean_ticker, is_hi, max_age_days=75, min_score=1)
-        if not _ranked:
-            # Nothing material/company-specific — skip the LLM and fall back to
-            # the honest momentum-origin / no-catalyst path below.
-            raise ValueError("no_material")
         from datetime import date as _date2
         _today_s = _date2.today().strftime("%d %b %Y")
         _lines = [f"[Ranked candidate catalysts as of {_today_s} — most material first]"]
@@ -1958,7 +1981,27 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
             _src = f"[{_it.get('source','')}]"
             _sn  = f" — {_it.get('snippet','')[:220]}" if _it.get("snippet") else ""
             _lines.append(f"{_src} {_dt} {_it.get('title','')}{_sn}")
-        news_context = "\n".join(_lines)
+        news_context = "\n".join(_lines) if _ranked else ""
+
+        # Feed the SAME pre-loaded data the deep-dive uses (data/context/{ticker}),
+        # so the quick pass and the detailed report agree on the major catalyst.
+        _cc = _load_ctx_cache(ticker)
+        _gp = []
+        for _k, _lbl in (("fmp", "FMP FUNDAMENTALS"), ("screener", "SCREENER.IN 10-YR"),
+                         ("announcements", "EXCHANGE ANNOUNCEMENTS"),
+                         ("news_web", "WEB NEWS"), ("news_yf", "YFINANCE NEWS")):
+            _v = str(_cc.get(_k) or "").strip()
+            if _v:
+                _gp.append(f"=== {_lbl} ===\n{_v[:1500]}")
+        _ground = "\n\n".join(_gp)
+        _ground_block = (
+            f"PRE-LOADED FUNDAMENTALS & FILINGS (SAME data as the detailed report — "
+            f"use these to identify the catalyst):\n{_ground}\n\n"
+        ) if _ground else ""
+        # Do NOT bail when the local pool is thin — Sonar still does its own web
+        # search, exactly like the deep-dive, so let it find the catalyst.
+        if not _ranked and not _ground:
+            news_context = "(no local news pool — rely on your own web search)"
 
         _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
         _macro = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
@@ -1999,6 +2042,7 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
             f"VolSurge: {vsurge_str} | P/E: {pe_str}\n"
             f"Sector: {sector}\n\n"
             f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
+            f"{_ground_block}"
             f"{_macro_block}"
             f"Task: Identify the SPECIFIC, DATED ROOT CAUSE business event that triggered this {direction}.\n"
             f"- Date the catalyst by when the EVENT actually happened (e.g. the earnings/board-meeting "
@@ -3823,11 +3867,12 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                      if headlines_raw else "No recent headlines available.")
 
     # ── Fetch all data sources ────────────────────────────────────────────────
+    _cc = _load_ctx_cache(ticker)   # pre-fetched background context (may be empty)
     src_col1, src_col2, src_col3, src_col4 = st.columns(4)
 
     with src_col1:
         with st.spinner("FMP: fetching fundamentals…"):
-            fmp_ctx = build_fmp_context(ticker) if (_FMP_OK and st.session_state.get("src_fund", True)) else ""
+            fmp_ctx = _ctx_or_live(_cc.get("fmp"), (lambda: build_fmp_context(ticker) if _FMP_OK else ""), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if fmp_ctx else "#F0B429"};">'
             f'{"✅ FMP fundamentals loaded" if fmp_ctx else "⚠️ FMP unavailable"}</div>',
@@ -3836,7 +3881,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col2:
         with st.spinner("FRED: fetching global macro…"):
-            fred_ctx = build_fred_context() if (_FRED_OK and st.session_state.get("src_macro", True)) else ""
+            fred_ctx = _ctx_or_live((_cc.get("macro") or {}).get("fred"), (lambda: build_fred_context() if _FRED_OK else ""), st.session_state.get("src_macro", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if fred_ctx else "#F0B429"};">'
             f'{"✅ FRED macro loaded" if fred_ctx else "⚠️ FRED unavailable"}</div>',
@@ -3845,7 +3890,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col3:
         with st.spinner("NSE/RBI: fetching India macro…"):
-            india_ctx = build_india_macro_context() if (_INDIA_MACRO_OK and st.session_state.get("src_macro", True)) else ""
+            india_ctx = _ctx_or_live((_cc.get("macro") or {}).get("india"), (lambda: build_india_macro_context() if _INDIA_MACRO_OK else ""), st.session_state.get("src_macro", True))
             # Append India trade/policy watch (FTAs, tariffs, PLI, GST, bans).
             try:
                 import policy_news as _pol_ctx
@@ -3874,7 +3919,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col5:
         with st.spinner("Screener.in: fetching India fundamentals…"):
-            screener_ctx = build_screener_context(ticker) if (_SCREENER_OK and st.session_state.get("src_fund", True)) else ""
+            screener_ctx = _ctx_or_live(_cc.get("screener"), (lambda: build_screener_context(ticker) if _SCREENER_OK else ""), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if screener_ctx else "#F0B429"};">'
             f'{"✅ Screener.in loaded (10yr financials)" if screener_ctx else "⚠️ Screener.in unavailable"}</div>',
@@ -3883,7 +3928,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col6:
         with st.spinner("yfinance: fetching analyst targets & EPS…"):
-            av_ctx = _cached_yfinance_context(ticker) if (_SCREENER_OK and st.session_state.get("src_fund", True)) else ""
+            av_ctx = _ctx_or_live(_cc.get("yfinance"), (lambda: _cached_yfinance_context(ticker) if _SCREENER_OK else ""), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#8B949E"};">'
             f'{"✅ yfinance fundamentals loaded" if av_ctx else "ℹ️ Fundamentals via FMP / Screener"}</div>',
@@ -3928,7 +3973,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col10:
         with st.spinner("BSE: corporate announcements…"):
-            bse_ctx = _fetch_bse_announcements_context(ticker) if st.session_state.get("src_news", True) else ""
+            bse_ctx = _ctx_or_live(_cc.get("announcements"), (lambda: _fetch_bse_announcements_context(ticker)), st.session_state.get("src_news", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if bse_ctx else "#F0B429"};">'
             f'{"✅ Announcements / news loaded" if bse_ctx else "⚠️ Announcements unavailable"}</div>',
