@@ -1517,67 +1517,19 @@ def _render_signals_table(df: pd.DataFrame, key: str, params: dict | None = None
             f'{catalyst_impact}</span>'
         ) if catalyst_impact and catalyst_impact not in ("N/A", "") else ""
 
-        # Reframed: an older catalyst means the move is momentum continuation,
-        # not "stale" — present it as the run's origin rather than a warning.
-        stale_badge = (
-            ' <span style="font-size:10px;font-weight:700;background:#16261a;'
-            'color:#7FB950;border-radius:3px;padding:1px 6px;">↗ Momentum</span>'
-        ) if catalyst_stale else ""
-
+        # Momentum framing removed — always present the major catalyst (the dated
+        # event that drove the 52-week move); no "momentum" badge or reframing.
         date_chip = (
             f' <span style="font-size:10px;color:#6E7681;margin-left:6px;">'
             f'{catalyst_date}</span>'
         ) if catalyst_date and catalyst_date != "Not found" else ""
 
-        if catalyst_text and catalyst_stale:
-            _breadth_line = (
-                f'<div style="font-size:11px;color:#8B949E;line-height:1.5;'
-                f'margin-top:5px;">📊 {catalyst_breadth}</div>'
-            ) if catalyst_breadth else ""
-            _has_origin = (isinstance(catalyst_origin, dict)
-                           and catalyst_origin.get("title") and not catalyst_nocat)
-            if _has_origin:
-                # A genuine earlier company catalyst is driving the continuation.
-                _origin_url = catalyst_origin.get("url", "")
-                if _origin_url.startswith("http"):
-                    _origin_txt = (
-                        f'<a href="{_origin_url}" target="_blank" rel="noopener noreferrer" '
-                        f'style="color:{catalyst_color};text-decoration:none;">{catalyst_text}</a>'
-                        f'{date_chip} <span style="color:#388bfd;font-size:10px;">↗ source</span>'
-                    )
-                else:
-                    _origin_txt = f'{catalyst_text}{date_chip}'
-                catalyst_html = (
-                    f'<div style="margin-top:8px;">'
-                    f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-                    f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
-                    f'Major Catalyst{stale_badge}</div>'
-                    f'<div style="font-size:12px;color:#8B949E;line-height:1.5;">'
-                    f'No fresh catalyst recently — earlier driver:</div>'
-                    f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
-                    f'line-height:1.5;margin-top:3px;">{_origin_txt}</div>'
-                    f'{_breadth_line}'
-                    f'</div>'
-                )
-            else:
-                # Honest: no recent company-specific catalyst — state it plainly,
-                # no misleading "riding momentum from" or Momentum badge.
-                catalyst_html = (
-                    f'<div style="margin-top:8px;">'
-                    f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
-                    f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
-                    f'Major Catalyst</div>'
-                    f'<div style="font-size:13px;color:#8B949E;font-weight:600;'
-                    f'line-height:1.5;">{catalyst_text}</div>'
-                    f'{_breadth_line}'
-                    f'</div>'
-                )
-        elif catalyst_text:
+        if catalyst_text:
             catalyst_html = (
                 f'<div style="margin-top:8px;">'
                 f'<div style="font-size:10px;font-weight:700;letter-spacing:1.5px;'
                 f'text-transform:uppercase;color:#6E7681;margin-bottom:3px;">'
-                f'Major Catalyst{stale_badge}</div>'
+                f'Major Catalyst</div>'
                 f'<div style="font-size:13px;color:{catalyst_color};font-weight:600;'
                 f'line-height:1.5;">{catalyst_text}{impact_chip}{date_chip}</div>'
                 f'</div>'
@@ -2086,65 +2038,24 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
         except Exception:
             pass
 
-        # Deterministic enrichment: sector-vs-individual + the news that started
-        # the run. If the model couldn't name a catalyst, use the origin headline.
-        _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
-        result["momentum_origin"] = _o
-        result["move_breadth"]    = _b
+        # Momentum framing removed — report the model's major catalyst, or an
+        # honest "no catalyst" note. Never substitute an old momentum origin.
         if ("no verified catalyst" in headline.lower()
                 or "no recent news" in headline.lower()):
-            if _o:
-                result["headline"]      = f"{_o['date']}: {_o['title']}"[:120]
-                result["catalyst_date"] = _o.get("date", result.get("catalyst_date", ""))
-            else:
-                # Honest: no recent company-specific catalyst exists.
-                import analysis_utils as _au2
-                result["headline"]    = _au2.no_catalyst_summary(
-                    sector, "HIGH" in signal.upper(), _b)
-                result["catalyst_date"] = ""
-                result["no_catalyst"]   = True
-            result["is_stale"] = True
+            result["headline"]      = f"{company} — no verified catalyst found in the evidence"
+            result["catalyst_date"] = ""
+            result["no_catalyst"]   = True
+            result["is_stale"]      = True
         return result
 
     except Exception:
-        # ── Heuristic fallback — data-driven, never hallucinated ──────────────
-        _parts = []
-        if ret3m and abs(ret3m) >= 5:
-            _parts.append(f"{ret3m:+.1f}% over 3 months")
-        elif ret1m and abs(ret1m) >= 3:
-            _parts.append(f"{ret1m:+.1f}% over 1 month")
-        if vsurge and vsurge >= 1.5:
-            _parts.append(f"{vsurge:.1f}× volume surge")
-        if pe and pe > 0:
-            _parts.append(f"P/E {pe:.0f}×")
-        if sector:
-            _parts.append(f"{sector} sector momentum")
-        _o, _b = _momentum_origin_and_breadth(ticker, company, sector, signal)
-        if _o:
-            # A genuine company-specific catalyst started the run — show it.
-            return {
-                "headline":        f"{_o['date']}: {_o['title']}"[:120],
-                "impact_pct":      "N/A",
-                "catalyst_date":   _o.get("date", "Not found"),
-                "is_stale":        True,
-                "source":          "Momentum origin",
-                "momentum_origin": _o,
-                "move_breadth":    _b,
-            }
-        try:
-            import analysis_utils as _au3
-            _honest = _au3.no_catalyst_summary(sector, "HIGH" in signal.upper(), _b)
-        except Exception:
-            _honest = (f"{company}: " + " · ".join(_parts)) if _parts \
-                      else f"{company} — no recent company-specific catalyst found"
+        # ── Honest fallback — no fabricated momentum origin ───────────────────
         return {
-            "headline":        _honest[:120],
+            "headline":        f"{company} — no verified catalyst found in the evidence",
             "impact_pct":      "N/A",
             "catalyst_date":   "Not found",
             "is_stale":        True,
             "source":          "No company-specific catalyst",
-            "momentum_origin": None,
-            "move_breadth":    _b,
             "no_catalyst":     True,
         }
 
@@ -3816,6 +3727,17 @@ def _section_card(icon: str, label: str, body: str, accent: str):
     )
 
 
+def _clean_ai_text(s) -> str:
+    """Strip HTML tags, [1]-style citation markers and stray markup that
+    Perplexity Sonar sometimes emits inside its text fields."""
+    import re as _re
+    s = str(s or "")
+    s = _re.sub(r"<[^>]+>", " ", s)
+    s = _re.sub(r"\[\d+\]", "", s)
+    s = _re.sub(r"\s{2,}", " ", s).strip()
+    return s
+
+
 def _render_spotlight(ticker: str, row: dict, params: dict):
     """Stock spotlight: price strip + 7-section AI analyst report."""
     name   = row.get("company_name", ticker)
@@ -4428,10 +4350,10 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         import urllib.parse as _up
         for cat in catalysts:
             cat_type   = str(cat.get("type", "neutral")).lower()
-            headline   = _html.escape(cat.get("headline", ""))
-            detail     = _html.escape(cat.get("detail", ""))
-            cat_date   = _html.escape(cat.get("date", ""))
-            cat_source = _html.escape(cat.get("source", ""))
+            headline   = _html.escape(_clean_ai_text(cat.get("headline", "")))
+            detail     = _html.escape(_clean_ai_text(cat.get("detail", "")))
+            cat_date   = _html.escape(_clean_ai_text(cat.get("date", "")))
+            cat_source = _html.escape(_clean_ai_text(cat.get("source", "")))
             cat_impact = cat.get("impact_pct", "")
 
             # Link resolution priority:
@@ -4552,11 +4474,6 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'<b style="color:#8B949E">Sources:</b>&nbsp;&nbsp;{src_html}</div>',
             unsafe_allow_html=True,
         )
-
-    # ── Full Google News feed ─────────────────────────────────────────────────────
-    st.markdown("<hr style='border-color:#21262D;margin:20px 0 4px;'>",
-                unsafe_allow_html=True)
-    _render_news_feed(name, ticker, accent)
 
     # ── Download PDF report ─────────────────────────────────────────────────────
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
