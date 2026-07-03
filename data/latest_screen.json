@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-03T19:16:20.217034+00:00",
-  "generated_at_ist": "04 Jul 2026 · 00:46 IST",
-  "duration_seconds": 332.0,
+  "generated_at_utc": "2026-07-03T20:41:11.913550+00:00",
+  "generated_at_ist": "04 Jul 2026 · 02:11 IST",
+  "duration_seconds": 264.6,
   "universe_size": 2381,
   "params": {
     "high_low_window": 252,
@@ -233,7 +233,7 @@
       "industry": "Auto Parts",
       "current_price": 662.3,
       "week_52_high": 672.6,
-      "week_52_low": 399.84,
+      "week_52_low": 399.83,
       "pct_from_high": 0.0,
       "pct_from_low": 54.28,
       "volume_surge": 4.74,
@@ -256,36 +256,6 @@
       "news_headlines": [
         "Sona BLW Precision Forgings Ltd (BOM:543300) Q3 2026 Earnings Call Highlights: Record Revenue ..."
       ],
-      "signal": "BREAKOUT_HIGH"
-    },
-    {
-      "ticker": "DELHIVERY.NS",
-      "company_name": "Delhivery Limited",
-      "sector": "Industrials",
-      "industry": "Integrated Freight & Logistics",
-      "current_price": 509.3,
-      "week_52_high": 513.4,
-      "week_52_low": 374.45,
-      "pct_from_high": 0.0,
-      "pct_from_low": 33.58,
-      "volume_surge": 2.96,
-      "vol_confirmed": true,
-      "avg_vol_20d": 4352038,
-      "current_vol": 12862727,
-      "pe_ratio": 255.0,
-      "forward_pe": 44.4,
-      "beta": 0.18,
-      "intrinsic_value": NaN,
-      "upside_downside_pct": NaN,
-      "dcf_stage1_growth": NaN,
-      "ret_1m": 16.31,
-      "ret_3m": 19.48,
-      "ret_6m": 26.6,
-      "ret_1y": 33.1,
-      "market_cap": 380002992128.0,
-      "days_since_prior_high": 1.0,
-      "high_type": "CONTINUATION",
-      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -1197,7 +1167,10 @@
       "market_cap": 25438171136.0,
       "days_since_prior_high": 1.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [],
+      "news_headlines": [
+        "Talbros Automotive Components Ltd (BOM:505160) Q4 2026 Earnings Call Highlights: Record Revenue ...",
+        "Talbros Automotive Components Ltd (BOM:505160) Q2 2026 Earnings Call Highlights: Strategic ..."
+      ],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -2491,6 +2464,36 @@
       "market_cap": NaN,
       "days_since_prior_high": 372.0,
       "high_type": "NEW",
+      "news_headlines": [],
+      "signal": "BREAKOUT_HIGH"
+    },
+    {
+      "ticker": "DELHIVERY.NS",
+      "company_name": "DELHIVERY.NS",
+      "sector": NaN,
+      "industry": NaN,
+      "current_price": 509.3,
+      "week_52_high": 513.4,
+      "week_52_low": 374.45,
+      "pct_from_high": 0.0,
+      "pct_from_low": 33.58,
+      "volume_surge": 2.96,
+      "vol_confirmed": true,
+      "avg_vol_20d": 4352038,
+      "current_vol": 12862727,
+      "pe_ratio": NaN,
+      "forward_pe": NaN,
+      "beta": NaN,
+      "intrinsic_value": NaN,
+      "upside_downside_pct": NaN,
+      "dcf_stage1_growth": NaN,
+      "ret_1m": 16.31,
+      "ret_3m": 19.48,
+      "ret_6m": 26.6,
+      "ret_1y": 33.1,
+      "market_cap": NaN,
+      "days_since_prior_high": 1.0,
+      "high_type": "CONTINUATION",
       "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     }
