@@ -1,0 +1,72 @@
+name: Pre-fetch Stock Context
+
+# Fetches the NON-Perplexity data (FMP, Screener, yfinance, earnings, macro, news)
+# for stocks flagged at a 52-week extreme, and caches it to data/context/.
+# Perplexity is never called here — it stays on-click in the dashboard.
+# Runs 3x on trading days; each run only fetches stocks not already cached today.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1-5"    # 10:30 IST
+    - cron: "30 7 * * 1-5"   # 13:00 IST
+    - cron: "15 10 * * 1-5"  # 15:45 IST
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: context-prefetch
+  cancel-in-progress: false
+
+jobs:
+  context:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FMP_API_KEY:      ${{ secrets.FMP_API_KEY }}
+      FRED_API_KEY:     ${{ secrets.FRED_API_KEY }}
+      TAVILY_API_KEY:   ${{ secrets.TAVILY_API_KEY }}
+      EXA_API_KEY:      ${{ secrets.EXA_API_KEY }}
+      NEWSAPI_KEY:      ${{ secrets.NEWSAPI_KEY }}
+      FINNHUB_API_KEY:  ${{ secrets.FINNHUB_API_KEY }}
+      ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Pre-fetch context for flagged stocks
+        run: python build_context.py
+
+      - name: Commit context
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/context
+          if git diff --staged --quiet; then
+            echo "No new context to commit."
+            exit 0
+          fi
+          git commit -m "chore: refresh stock context cache [skip ci]"
+          for i in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "Pushed on attempt $i."
+              exit 0
+            fi
+            echo "Push rejected (attempt $i) - rebasing..."
+            git pull --rebase --autostash origin main || git rebase --abort
+            sleep $((RANDOM % 5 + 3))
+          done
+          echo "Failed to push after 5 attempts."
+          exit 1
