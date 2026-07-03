@@ -4278,7 +4278,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
         if isinstance(primary, dict) and primary.get("headline") and not primary.get("no_catalyst"):
             _sd = _clean_ai_text(primary.get("date", "") or "")
             _sh = _clean_ai_text(primary.get("headline", ""))
-            st.session_state[f"quick_{ticker}_{sig}"] = {
+            _synced = {
                 "headline":      (f"{_sd}: {_sh}" if _sd else _sh)[:140],
                 "impact_pct":    primary.get("impact_pct", "N/A"),
                 "catalyst_date": _sd,
@@ -4286,6 +4286,12 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
                 "source":        "Deep-dive",
                 "no_catalyst":   False,
             }
+            # Only rewrite + rerun when the card is actually out of date, so the
+            # card (rendered above) refreshes to match — without an infinite loop
+            # (the deep-dive itself is cached, so the rerun won't re-call the LLM).
+            if st.session_state.get(f"quick_{ticker}_{sig}") != _synced:
+                st.session_state[f"quick_{ticker}_{sig}"] = _synced
+                st.rerun()
     except Exception:
         pass
     if _is_stale_news:
