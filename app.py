@@ -2180,7 +2180,7 @@ Focus your research on answering this question: WHY did {company} hit its 52-wee
 RESEARCH METHODOLOGY — search the web for EACH of these categories:
 1. Current stock price and today's movement
 2. Latest earnings results or guidance updates
-3. Analyst upgrades, downgrades, or price target changes
+3. Analyst upgrades/downgrades or price-target changes (CONTEXT ONLY — never the primary reason)
 4. Company-specific news (products, partnerships, leadership, legal)
 5. Sector/industry trends affecting this stock
 6. Macro factors (RBI/Fed policy, economic data, geopolitics) relevant to this stock
@@ -2193,8 +2193,14 @@ ENTITY ISOLATION: Report ONLY catalysts that explicitly name {company} or {_clea
 After researching, respond with ONLY raw JSON — no markdown, no code fences, no explanation before or after.
 {{"sentiment":"bullish"|"bearish"|"mixed","confidence":"high"|"medium"|"low","catalysts":[{{"category":"earnings"|"analyst"|"macro"|"product"|"regulatory"|"insider"|"sector"|"technical"|"other","title":"Short headline","description":"1-2 sentence explanation","impact":"positive"|"negative"|"neutral"}}],"summary":"2-3 sentence summary","sources":["source names"]}}
 
+CATALYST RANKING (critical — this is what the user cares about most):
+- The #1 / PRIMARY catalyst MUST be the ROOT-CAUSE business event that actually caused the move: quarterly results / earnings, an order or contract win, M&A or a stake sale, a regulatory approval or ruling, capacity expansion / capex, a major project or deal, dividend / buyback, or management guidance — always with a figure.
+- An analyst rating change, price-target revision, or brokerage research note (e.g. "Goldman Sachs raises target", "Nomura upgrades to Buy") is a REACTION / opinion, NOT a root cause. It may appear ONLY as a lower-ranked supporting catalyst — NEVER as catalyst #1 / the Primary Driver.
+- If the freshest thing you find is an analyst note, identify the underlying BUSINESS event the analyst is reacting to and rank THAT event #1.
+- Price or volume movement is never a catalyst — always find the business event behind it.
+
 QUALITY GUIDELINES:
-- Include 4-6 catalysts, ranked by recency and impact
+- Return 4-6 catalysts with the ROOT-CAUSE business event ranked #1, then the rest by recency and impact
 - Each catalyst must reference a specific event with an approximate date and must name {company} directly
 - Summary should connect the dots between the catalysts
 - Sources must be specific (e.g. "Reuters, Feb 18" not just "news")"""
