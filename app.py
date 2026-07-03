@@ -1962,7 +1962,7 @@ ENTITY-ISOLATION RULES (critical):
 - DATE = EVENT DATE (the earnings/board-meeting/order date), NOT the article publish date.
 - Do NOT describe price movement or volume as the catalyst — find the ROOT CAUSE business event, and use the company name (not the ticker) in the headline.
 
-Identify the specific, dated catalyst(s) that triggered the 52-week {direction}. Flag any conflicting or unverified reports, and note explicitly if news flow is thin or stale.
+Identify THE SINGLE most material AND most recent company-specific catalyst that DIRECTLY caused this 52-week {direction} — the biggest, freshest event (largest figure, closest to today). If several candidate events exist, pick the most impactful recent one and IGNORE older or smaller events; NEVER present a stale "momentum origin" or an older minor deal as the catalyst. Flag any conflicting or unverified reports, and note explicitly if news flow is thin or stale.
 
 OUTPUT — Return ONLY valid JSON, no markdown, no extra text:
 {{"headline": "DD Mon YYYY: specific ROOT CAUSE catalyst under 90 chars — must include a figure", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
@@ -4227,8 +4227,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'text-transform:uppercase;color:{accent};margin-bottom:10px;">'
             f'&#9889; Primary Driver{impact_html}</div>'
             f'<div style="font-size:16px;font-weight:700;color:#E6EDF3;'
-            f'line-height:1.4;margin-bottom:8px;">{p_headline}</div>'
-            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{p_detail}</div>'
+            f'line-height:1.4;margin-bottom:8px;">{_clean_ai_text(p_headline)}</div>'
+            f'<div style="font-size:13px;color:#C9D1D9;line-height:1.6;">{_clean_ai_text(p_detail)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -4240,7 +4240,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'border-radius:8px;padding:16px 20px;margin:8px 0 14px;">'
             f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
             f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Analyst Summary</div>'
-            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{summary}</div>'
+            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{_clean_ai_text(summary)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -4253,7 +4253,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
             f'border-radius:8px;padding:16px 20px;margin:8px 0 14px;">'
             f'<div style="font-size:11px;font-weight:700;letter-spacing:2px;'
             f'text-transform:uppercase;color:#8B949E;margin-bottom:8px;">&#9670; Business Model</div>'
-            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{business_model}</div>'
+            f'<div style="font-size:14px;color:#C9D1D9;line-height:1.7;">{_clean_ai_text(business_model)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
