@@ -1886,13 +1886,32 @@ def _momentum_origin_and_breadth(ticker: str, company: str,
 
 
 @st.cache_data(ttl=10800, show_spinner=False)   # 3h — macro/sector moves slowly
-def _macro_sector_ctx(sector: str = "") -> str:
-    """Cached macro + sector backdrop (World Bank + FRED + FMP + Finnhub)."""
+def _macro_sector_ctx(sector: str = "", use_macro: bool = True,
+                      use_finnhub: bool = True, use_fund: bool = True) -> str:
+    """Cached macro + sector backdrop, composed per the sidebar source toggles."""
     try:
         import macro_sector as _ms
-        return _ms.macro_sector_context(sector or "")
+        from datetime import date as _d
+        parts = []
+        if use_macro:
+            parts += [_ms.world_bank_block(), _ms.fred_block()]
+        if use_finnhub:
+            parts.append(_ms.finnhub_news_block())
+        if use_fund:
+            parts.append(_ms.sector_block(sector or ""))
+        body = "\n".join(p for p in parts if p)
+        if not body:
+            return ""
+        return f"[MACRO & SECTOR BACKDROP - as of {_d.today():%d %b %Y}]\n{body}"
     except Exception:
         return ""
+
+
+def _src_flags():
+    """Read the deep-dive source toggles from session state (default all on)."""
+    g = st.session_state.get
+    return (bool(g("src_macro", True)), bool(g("src_finnhub", True)),
+            bool(g("src_fund", True)), bool(g("src_news", True)))
 
 
 def _quick_catalyst_groq(ticker: str, company: str, sector: str,
@@ -1941,7 +1960,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
             _lines.append(f"{_src} {_dt} {_it.get('title','')}{_sn}")
         news_context = "\n".join(_lines)
 
-        _macro = _macro_sector_ctx(sector)
+        _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
+        _macro = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
         _macro_block = (
             f"MACRO & SECTOR BACKDROP (judge sector-wide vs company-specific and "
             f"global risk-on/off — NOT the company's own catalyst):\n{_macro}\n\n"
@@ -2151,7 +2171,8 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     _clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
-    macro_ctx = _macro_sector_ctx(sector)
+    _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
+    macro_ctx = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
     system_prompt = f"""You are a senior equity analyst. Today is {_today_str}. Analyze ONLY {company} (NSE: {_clean_ticker}), a {sector} company, which has just hit its 52-week {_action_word}.
 
 Focus your research on answering this question: WHY did {company} hit its 52-week {_action_word}? Use the categories below as a guide, but prioritize the categories most relevant to the question.
@@ -3800,7 +3821,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col1:
         with st.spinner("FMP: fetching fundamentals…"):
-            fmp_ctx = build_fmp_context(ticker) if _FMP_OK else ""
+            fmp_ctx = build_fmp_context(ticker) if (_FMP_OK and st.session_state.get("src_fund", True)) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if fmp_ctx else "#F0B429"};">'
             f'{"✅ FMP fundamentals loaded" if fmp_ctx else "⚠️ FMP unavailable"}</div>',
@@ -3809,7 +3830,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col2:
         with st.spinner("FRED: fetching global macro…"):
-            fred_ctx = build_fred_context() if _FRED_OK else ""
+            fred_ctx = build_fred_context() if (_FRED_OK and st.session_state.get("src_macro", True)) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if fred_ctx else "#F0B429"};">'
             f'{"✅ FRED macro loaded" if fred_ctx else "⚠️ FRED unavailable"}</div>',
@@ -3818,7 +3839,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col3:
         with st.spinner("NSE/RBI: fetching India macro…"):
-            india_ctx = build_india_macro_context() if _INDIA_MACRO_OK else ""
+            india_ctx = build_india_macro_context() if (_INDIA_MACRO_OK and st.session_state.get("src_macro", True)) else ""
             # Append India trade/policy watch (FTAs, tariffs, PLI, GST, bans).
             try:
                 import policy_news as _pol_ctx
@@ -3835,7 +3856,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col4:
         with st.spinner("yfinance: fetching company profile…"):
-            nse_bse_ctx = _fetch_yf_company_context(ticker, row)
+            nse_bse_ctx = _fetch_yf_company_context(ticker, row) if st.session_state.get("src_fund", True) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if nse_bse_ctx else "#F0B429"};">'
             f'{"✅ Company profile loaded" if nse_bse_ctx else "⚠️ Company profile unavailable"}</div>',
@@ -3847,7 +3868,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col5:
         with st.spinner("Screener.in: fetching India fundamentals…"):
-            screener_ctx = build_screener_context(ticker) if _SCREENER_OK else ""
+            screener_ctx = build_screener_context(ticker) if (_SCREENER_OK and st.session_state.get("src_fund", True)) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if screener_ctx else "#F0B429"};">'
             f'{"✅ Screener.in loaded (10yr financials)" if screener_ctx else "⚠️ Screener.in unavailable"}</div>',
@@ -3856,7 +3877,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col6:
         with st.spinner("yfinance: fetching analyst targets & EPS…"):
-            av_ctx = _cached_yfinance_context(ticker) if _SCREENER_OK else ""
+            av_ctx = _cached_yfinance_context(ticker) if (_SCREENER_OK and st.session_state.get("src_fund", True)) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if av_ctx else "#8B949E"};">'
             f'{"✅ yfinance fundamentals loaded" if av_ctx else "ℹ️ Fundamentals via FMP / Screener"}</div>',
@@ -3865,8 +3886,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col7:
         with st.spinner("Tavily / Exa: searching latest news…"):
-            tavily_ctx = _fetch_tavily_context(name, ticker, _TAVILY_KEY) if _TAVILY_KEY else ""
-            exa_ctx    = _fetch_exa_context(name, ticker, _EXA_KEY) if _EXA_KEY else ""
+            tavily_ctx = _fetch_tavily_context(name, ticker, _TAVILY_KEY) if (_TAVILY_KEY and st.session_state.get("src_news", True)) else ""
+            exa_ctx    = _fetch_exa_context(name, ticker, _EXA_KEY) if (_EXA_KEY and st.session_state.get("src_news", True)) else ""
         web_ctx_ok = bool(tavily_ctx or exa_ctx)
         web_label  = ("✅ Exa + Tavily search loaded" if (exa_ctx and tavily_ctx)
                       else "✅ Exa neural search loaded" if exa_ctx
@@ -3883,7 +3904,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col8:
         with st.spinner("yfinance / FMP: analyst targets…"):
-            upgrades_ctx = _fetch_yf_upgrades_context(ticker)
+            upgrades_ctx = _fetch_yf_upgrades_context(ticker) if st.session_state.get("src_fund", True) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#8B949E"};">'
             f'{"✅ Analyst targets loaded" if upgrades_ctx else "ℹ️ Analyst view via news flow"}</div>',
@@ -3892,7 +3913,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col9:
         with st.spinner("FMP: earnings surprises…"):
-            earnings_surprise_ctx = _fetch_fmp_earnings_surprise_context(ticker)
+            earnings_surprise_ctx = _fetch_fmp_earnings_surprise_context(ticker) if st.session_state.get("src_fund", True) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if earnings_surprise_ctx else "#F0B429"};">'
             f'{"✅ Earnings history loaded" if earnings_surprise_ctx else "⚠️ Earnings data unavailable"}</div>',
@@ -3901,7 +3922,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col10:
         with st.spinner("BSE: corporate announcements…"):
-            bse_ctx = _fetch_bse_announcements_context(ticker)
+            bse_ctx = _fetch_bse_announcements_context(ticker) if st.session_state.get("src_news", True) else ""
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if bse_ctx else "#F0B429"};">'
             f'{"✅ Announcements / news loaded" if bse_ctx else "⚠️ Announcements unavailable"}</div>',
@@ -4559,6 +4580,18 @@ def _render_sidebar() -> dict:
 
         # ── Auto-refresh ────────────────────────────────────────────────────
         auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
+
+        st.markdown("<hr/>", unsafe_allow_html=True)
+        st.markdown(
+            "<div style='font-size:12px;font-weight:700;color:#8B949E;"
+            "letter-spacing:1px;padding:2px 0;'>DEEP-DIVE SOURCES</div>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Perplexity Sonar (web + finance) is always on. Toggle the extra data the AI pulls:")
+        st.checkbox("FMP + fundamentals",              value=True, key="src_fund")
+        st.checkbox("Macro (FRED + World Bank + India)", value=True, key="src_macro")
+        st.checkbox("Finnhub (global + sector)",       value=True, key="src_finnhub")
+        st.checkbox("News search (Tavily / NewsAPI / Exa)", value=True, key="src_news")
 
         st.markdown("<hr/>", unsafe_allow_html=True)
 
