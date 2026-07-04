@@ -1964,6 +1964,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
     try:
         from datetime import date as _date
         today        = _date.today().strftime("%d %B %Y")
+        _recent_d    = (_date.today() - timedelta(days=7)).strftime("%d %B %Y")
+        _stale_d     = (_date.today() - timedelta(days=30)).strftime("%d %B %Y")
         is_hi        = "HIGH" in signal.upper()
         direction    = "52-week high" if is_hi else "52-week low"
         clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
@@ -2035,7 +2037,7 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         client = _OpenAI(api_key=_GROQ_KEY, base_url=_GROQ_BASE_URL)
 
         import analyst_prompt as _apr
-        system_msg = _apr.system_prompt(company, clean_ticker, sector, ("high" if is_hi else "low"), today, primary_only=True)
+        system_msg = _apr.system_prompt(company, clean_ticker, sector, ("high" if is_hi else "low"), today, primary_only=True, recent_date=_recent_d, stale_date=_stale_d)
 
         ret1m_str = f"{ret1m:+.1f}%" if ret1m else "N/A"
         ret3m_str = f"{ret3m:+.1f}%" if ret3m else "N/A"
@@ -2221,13 +2223,15 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
     _risk_label  = "rally" if is_hi else "recovery"
 
     _today_str = datetime.now().strftime("%B %d, %Y")
+    _recent_str = (datetime.now() - timedelta(days=7)).strftime("%B %d, %Y")
+    _stale_str  = (datetime.now() - timedelta(days=30)).strftime("%B %d, %Y")
 
     _clean_ticker = ticker.replace(".NS", "").replace(".BO", "")
 
     _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
     macro_ctx = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
     import analyst_prompt as _apr
-    system_prompt = _apr.system_prompt(company, _clean_ticker, sector, _action_word, _today_str, primary_only=False)
+    system_prompt = _apr.system_prompt(company, _clean_ticker, sector, _action_word, _today_str, primary_only=False, recent_date=_recent_str, stale_date=_stale_str)
 
     user_prompt = f"""Research question: WHY did {company} (NSE: {_clean_ticker}, {sector}) hit its 52-week {_action_word}? Today is {_today_str}.
 

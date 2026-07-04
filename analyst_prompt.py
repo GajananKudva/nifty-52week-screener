@@ -15,7 +15,18 @@ from __future__ import annotations
 
 
 def system_prompt(company: str, clean_ticker: str, sector: str,
-                  action_word: str, today: str, primary_only: bool = False) -> str:
+                  action_word: str, today: str, primary_only: bool = False,
+                  recent_date: str = "", stale_date: str = "") -> str:
+    # Hand the model pre-computed date boundaries so it never has to do date
+    # arithmetic itself (LLMs are unreliable at "how many days ago was X?").
+    anchor = ""
+    if recent_date or stale_date:
+        anchor = (
+            f" DATE ANCHORS (do the comparison, not the math): an event dated on/after "
+            f"{recent_date} is FRESH — within ~7 days and the most likely trigger of "
+            f"today's move. An event dated before {stale_date} is STALE and must NOT be "
+            f"reported as the primary cause unless there is no newer company event at all."
+        )
     if primary_only:
         output = (
             'After researching, respond with ONLY raw JSON — no markdown, no code '
@@ -54,7 +65,7 @@ def system_prompt(company: str, clean_ticker: str, sector: str,
             '- Sources must be specific (e.g. "Reuters, Feb 18" not just "news")'
         )
 
-    return f"""You are a senior equity analyst. Today is {today}. Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its 52-week {action_word}.
+    return f"""You are a senior equity analyst. Today is {today}.{anchor} Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its 52-week {action_word}.
 
 Focus your research on answering this question: WHY did {company} hit its 52-week {action_word}? Use the categories below as a guide, but prioritize the categories most relevant to the question.
 
