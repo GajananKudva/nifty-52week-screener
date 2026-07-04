@@ -265,10 +265,16 @@ try:
         _OPENAI_KEY   = _secret("OPENAI_API_KEY")
         _OPENAI_MODEL = _secret("OPENAI_MODEL", "gpt-4o-mini")
     _AI_OK        = bool(_OPENAI_KEY)
+    # Dedicated Groq client for the FAST pre-analysis (Major Catalyst), separate
+    # from the deep-dive provider. Best available Llama on Groq.
+    _GROQ_KEY         = _secret("GROQ_API_KEY") or _secret("OPENAI_API_KEY")
+    _GROQ_QUICK_MODEL = _secret("GROQ_QUICK_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 except ImportError:
     _AI_OK        = False
     _OPENAI_KEY   = ""
     _OPENAI_MODEL = ""
+    _GROQ_KEY     = ""
+    _GROQ_QUICK_MODEL = ""
 
 # ── FMP client (optional — graceful fallback) ─────────────────────────────────
 try:
@@ -2001,7 +2007,7 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         # Do NOT bail when the local pool is thin — Sonar still does its own web
         # search, exactly like the deep-dive, so let it find the catalyst.
         if not _ranked and not _ground:
-            news_context = "(no local news pool — rely on your own web search)"
+            news_context = "(no local news pool — use the pre-loaded fundamentals/filings above)"
 
         _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
         _macro = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
@@ -2011,11 +2017,13 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         ) if _macro else ""
 
         # ── Step 2: single LLM call with full context ─────────────────────────
-        client = _OpenAI(api_key=_OPENAI_KEY, base_url=_llm_base_url())
+        client = _OpenAI(api_key=_GROQ_KEY, base_url=_GROQ_BASE_URL)
 
         system_msg = f"""You are a senior equity analyst. Today's date is {today}. Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its 52-week {direction}.
 
-SEARCH REQUIREMENT: Before answering, search the web for news published in the last 7 days (and confirm nothing material broke in the last 24-48 hours). Prioritize company filings / exchange announcements (BSE/NSE), {company}'s own investor-relations releases, and tier-1 financial press (Reuters/ET/Mint/MoneyControl). State the publication date next to each catalyst. If the most recent item you can find is older than 7 days, say so explicitly rather than presenting stale news as current. Any supplied NEWS CONTEXT is SECONDARY corroboration — weight your own fresh web search higher.
+EVIDENCE: You CANNOT browse the web. Use ONLY the NEWS CONTEXT and the PRE-LOADED FUNDAMENTALS & FILINGS provided in the user message (the SAME data the detailed report uses). Prioritise BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) within it. Date each catalyst by the EVENT date. If the freshest item is older than 20 days, set is_stale=true.
+
+CATALYST RANKING (critical): the catalyst you report MUST be the ROOT-CAUSE business event — quarterly results/earnings, an order or contract win, M&A or a stake sale, a regulatory approval, capacity expansion/capex, a major project or deal, dividend/buyback, or guidance (with a figure). An analyst rating change, price-target revision or brokerage note (e.g. "Goldman raises target") is a REACTION, NOT a root cause — NEVER report it as the catalyst; instead name the underlying business event it reacts to. Price/volume movement is never a catalyst.
 
 ENTITY-ISOLATION RULES (critical):
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
@@ -2054,21 +2062,17 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
             f"\"{company} — no verified catalyst found\" and is_stale=true."
         )
 
-        _quick_kwargs: dict = {"temperature": 0.1, "max_tokens": 300,
-                               "extra_body": _pplx_extra_body("low")}
-        # Perplexity supports json_schema only (not json_object); the prompt already
-        # mandates raw JSON and we extract it defensively below.
-        if _LLM_PROVIDER != "perplexity":
-            _quick_kwargs["response_format"] = {"type": "json_object"}
+        _quick_kwargs: dict = {"temperature": 0.1, "max_tokens": 400,
+                               "response_format": {"type": "json_object"}}
         resp   = client.chat.completions.create(
-            model=_QUICK_MODEL,
+            model=_GROQ_QUICK_MODEL,
             messages=[
                 {"role": "system", "content": system_msg},
                 {"role": "user",   "content": user_msg},
             ],
             **_quick_kwargs,
         )
-        _track_llm_call(_QUICK_MODEL, resp, "low")
+        _track_llm_call(_GROQ_QUICK_MODEL, resp, "low")
         _raw_quick = resp.choices[0].message.content.strip()
         # Sonar sometimes wraps JSON in prose/citation markers — extract the object.
         if not _raw_quick.startswith("{"):
@@ -4271,29 +4275,6 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
     primary = analysis.get("primary_catalyst", {})
-    # Sync the deep-dive's primary catalyst BACK to the card's quick cache so the
-    # card "Major Catalyst" and the report "Primary Driver" ALWAYS match — even when
-    # the quick pass found nothing but the thorough deep-dive did.
-    try:
-        if isinstance(primary, dict) and primary.get("headline") and not primary.get("no_catalyst"):
-            _sd = _clean_ai_text(primary.get("date", "") or "")
-            _sh = _clean_ai_text(primary.get("headline", ""))
-            _synced = {
-                "headline":      (f"{_sd}: {_sh}" if _sd else _sh)[:140],
-                "impact_pct":    primary.get("impact_pct", "N/A"),
-                "catalyst_date": _sd,
-                "is_stale":      False,
-                "source":        "Deep-dive",
-                "no_catalyst":   False,
-            }
-            # Only rewrite + rerun when the card is actually out of date, so the
-            # card (rendered above) refreshes to match — without an infinite loop
-            # (the deep-dive itself is cached, so the rerun won't re-call the LLM).
-            if st.session_state.get(f"quick_{ticker}_{sig}") != _synced:
-                st.session_state[f"quick_{ticker}_{sig}"] = _synced
-                st.rerun()
-    except Exception:
-        pass
     if _is_stale_news:
         # Drivers already appear in the Move Diagnosis panel above — here we just
         # state the classification + headline as the primary driver.
@@ -4654,18 +4635,6 @@ def _render_sidebar() -> dict:
 
         # ── Auto-refresh ────────────────────────────────────────────────────
         auto_refresh = st.toggle("Auto-refresh index prices (60s)", value=False)
-
-        st.markdown("<hr/>", unsafe_allow_html=True)
-        st.markdown(
-            "<div style='font-size:12px;font-weight:700;color:#8B949E;"
-            "letter-spacing:1px;padding:2px 0;'>DEEP-DIVE SOURCES</div>",
-            unsafe_allow_html=True,
-        )
-        st.caption("Perplexity Sonar (web + finance) is always on. Toggle the extra data the AI pulls:")
-        st.checkbox("FMP + fundamentals",              value=True, key="src_fund")
-        st.checkbox("Macro (FRED + World Bank + India)", value=True, key="src_macro")
-        st.checkbox("Finnhub (global + sector)",       value=True, key="src_finnhub")
-        st.checkbox("News search (Tavily / NewsAPI / Exa)", value=True, key="src_news")
 
         st.markdown("<hr/>", unsafe_allow_html=True)
 
