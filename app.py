@@ -268,7 +268,7 @@ try:
     # Dedicated Groq client for the FAST pre-analysis (Major Catalyst), separate
     # from the deep-dive provider. Best available Llama on Groq.
     _GROQ_KEY         = _secret("GROQ_API_KEY") or _secret("OPENAI_API_KEY")
-    _GROQ_QUICK_MODEL = _secret("GROQ_QUICK_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    _GROQ_QUICK_MODEL = _secret("GROQ_QUICK_MODEL", "openai/gpt-oss-120b")
 except ImportError:
     _AI_OK        = False
     _OPENAI_KEY   = ""
@@ -2009,6 +2009,19 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         if not _ranked and not _ground:
             news_context = "(no local news pool — use the pre-loaded fundamentals/filings above)"
 
+        # Give browse-free Groq a live web search via Exa, so it can see FRESH
+        # events (commissionings, orders, approvals) the cached pool may miss.
+        _exa_web = ""
+        try:
+            if _EXA_KEY:
+                _exa_web = _fetch_exa_context(company, ticker, _EXA_KEY) or ""
+        except Exception:
+            _exa_web = ""
+        _exa_block = (
+            f"LIVE WEB SEARCH (Exa — freshest results; prioritise these for a RECENT "
+            f"catalyst that triggered the move now):\n{_exa_web[:1600]}\n\n"
+        ) if _exa_web else ""
+
         _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
         _macro = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
         _macro_block = (
@@ -2024,6 +2037,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
 EVIDENCE: You CANNOT browse the web. Use ONLY the NEWS CONTEXT and the PRE-LOADED FUNDAMENTALS & FILINGS provided in the user message (the SAME data the detailed report uses). Prioritise BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) within it. Date each catalyst by the EVENT date. If the freshest item is older than 20 days, set is_stale=true.
 
 CATALYST RANKING (critical): the catalyst you report MUST be the ROOT-CAUSE business event — quarterly results/earnings, an order or contract win, M&A or a stake sale, a regulatory approval, capacity expansion/capex, a major project or deal, dividend/buyback, or guidance (with a figure). An analyst rating change, price-target revision or brokerage note (e.g. "Goldman raises target") is a REACTION, NOT a root cause — NEVER report it as the catalyst; instead name the underlying business event it reacts to. Price/volume movement is never a catalyst.
+
+SEARCH ORDER (follow strictly, NEWEST-FIRST): (1) FIRST examine news from TODAY, YESTERDAY and the DAY BEFORE (days 0-2 from today). A stock hitting a FRESH 52-week extreme is almost always triggered by something in this window — if a material company-specific event is here, THAT is the catalyst. (2) If nothing material in days 0-2, widen to 3-7 days ago. (3) ONLY if no triggering event is found in the last ~7 days, fall back to the older event where the run/momentum began. Weight days 0-3 FAR above anything older; an older, larger earnings result is background momentum, NOT the trigger — use it only when no recent (0-7 day) company event exists. Always show the event date so its recency is visible.
 
 ENTITY-ISOLATION RULES (critical):
 - Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
@@ -2050,6 +2065,7 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
             f"VolSurge: {vsurge_str} | P/E: {pe_str}\n"
             f"Sector: {sector}\n\n"
             f"NEWS CONTEXT (Tavily + NewsAPI + yfinance — newest first):\n{news_context}\n\n"
+            f"{_exa_block}"
             f"{_ground_block}"
             f"{_macro_block}"
             f"Task: Identify the SPECIFIC, DATED ROOT CAUSE business event that triggered this {direction}.\n"
@@ -2062,8 +2078,12 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
             f"\"{company} — no verified catalyst found\" and is_stale=true."
         )
 
-        _quick_kwargs: dict = {"temperature": 0.1, "max_tokens": 400,
-                               "response_format": {"type": "json_object"}}
+        _reasoning_model = any(x in _GROQ_QUICK_MODEL.lower()
+                               for x in ("gpt-oss", "qwen", "deepseek", "qwq", "r1"))
+        _quick_kwargs: dict = {"temperature": 0.1,
+                               "max_tokens": 1600 if _reasoning_model else 400}
+        if not _reasoning_model:
+            _quick_kwargs["response_format"] = {"type": "json_object"}
         resp   = client.chat.completions.create(
             model=_GROQ_QUICK_MODEL,
             messages=[
@@ -2074,7 +2094,9 @@ Set is_stale=true if the most recent item you can find is older than 7 days from
         )
         _track_llm_call(_GROQ_QUICK_MODEL, resp, "low")
         _raw_quick = resp.choices[0].message.content.strip()
-        # Sonar sometimes wraps JSON in prose/citation markers — extract the object.
+        if "</think>" in _raw_quick:
+            _raw_quick = _raw_quick.split("</think>")[-1].strip()
+        # reasoning models / Sonar sometimes wrap JSON in prose/citation markers — extract the object.
         if not _raw_quick.startswith("{"):
             import re as _re_q
             _mq = _re_q.search(r"\{[\s\S]*\}", _raw_quick)
@@ -2246,6 +2268,7 @@ CATALYST RANKING (critical — this is what the user cares about most):
 - An analyst rating change, price-target revision, or brokerage research note (e.g. "Goldman Sachs raises target", "Nomura upgrades to Buy") is a REACTION / opinion, NOT a root cause. It may appear ONLY as a lower-ranked supporting catalyst — NEVER as catalyst #1 / the Primary Driver.
 - If the freshest thing you find is an analyst note, identify the underlying BUSINESS event the analyst is reacting to and rank THAT event #1.
 - Price or volume movement is never a catalyst — always find the business event behind it.
+- SEARCH ORDER (newest-first): FIRST check TODAY / YESTERDAY / the DAY BEFORE (days 0-2) for a material company event — the trigger of a fresh 52-week extreme almost always sits here; if found, it is #1. If nothing in days 0-2, widen to 3-7 days ago. ONLY if no triggering event exists in the last ~7 days, fall back to the older event where the run began. Weight days 0-3 far above older events; an older bigger earnings result is background momentum, not the trigger, unless nothing recent exists.
 
 QUALITY GUIDELINES:
 - Return 4-6 catalysts with the ROOT-CAUSE business event ranked #1, then the rest by recency and impact
@@ -4275,6 +4298,26 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     # ── Primary Catalyst (Idea 1) ─────────────────────────────────────────────
     primary = analysis.get("primary_catalyst", {})
+    # The deep-dive (Perplexity, live web search) is authoritative for the catalyst.
+    # Sync it back to the card so the Major Catalyst matches the Primary Driver —
+    # Groq cannot browse, so its quick guess may miss a fresh event.
+    try:
+        if isinstance(primary, dict) and primary.get("headline") and not primary.get("no_catalyst"):
+            _sd = _clean_ai_text(primary.get("date", "") or "")
+            _sh = _clean_ai_text(primary.get("headline", ""))
+            _synced = {
+                "headline":      (f"{_sd}: {_sh}" if _sd else _sh)[:140],
+                "impact_pct":    primary.get("impact_pct", "N/A"),
+                "catalyst_date": _sd,
+                "is_stale":      False,
+                "source":        "Deep-dive",
+                "no_catalyst":   False,
+            }
+            if st.session_state.get(f"quick_{ticker}_{sig}") != _synced:
+                st.session_state[f"quick_{ticker}_{sig}"] = _synced
+                st.rerun()
+    except Exception:
+        pass
     if _is_stale_news:
         # Drivers already appear in the Move Diagnosis panel above — here we just
         # state the classification + headline as the primary driver.
