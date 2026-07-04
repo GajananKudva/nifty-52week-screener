@@ -268,7 +268,7 @@ try:
     # Dedicated Groq client for the FAST pre-analysis (Major Catalyst), separate
     # from the deep-dive provider. Best available Llama on Groq.
     _GROQ_KEY         = _secret("GROQ_API_KEY") or _secret("OPENAI_API_KEY")
-    _GROQ_QUICK_MODEL = _secret("GROQ_QUICK_MODEL", "openai/gpt-oss-120b")
+    _GROQ_QUICK_MODEL = _secret("GROQ_QUICK_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 except ImportError:
     _AI_OK        = False
     _OPENAI_KEY   = ""
@@ -2000,7 +2000,7 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
                          ("news_web", "WEB NEWS"), ("news_yf", "YFINANCE NEWS")):
             _v = str(_cc.get(_k) or "").strip()
             if _v:
-                _gp.append(f"=== {_lbl} ===\n{_v[:900]}")
+                _gp.append(f"=== {_lbl} ===\n{_v}")
         _ground = "\n\n".join(_gp)
         _ground_block = (
             f"PRE-LOADED FUNDAMENTALS & FILINGS (SAME data as the detailed report — "
