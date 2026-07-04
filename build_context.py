@@ -141,6 +141,48 @@ def _tavily_news(company: str, ticker: str) -> str:
     return ""
 
 
+def _fmt_earnings(rows) -> str:
+    if not rows:
+        return ""
+    out = ["Earnings surprises (most recent first):"]
+    for r in rows[:6]:
+        d = str(r.get("date", ""))[:10]
+        act = r.get("actualEarningResult")
+        est = r.get("estimatedEarning")
+        if d:
+            out.append(f"  {d}: EPS actual {act} vs estimate {est}")
+    return "\n".join(out) if len(out) > 1 else ""
+
+
+def _fmt_analyst(targets, estimates) -> str:
+    out = []
+    if targets:
+        out.append("Analyst price targets (recent):")
+        for t in targets[:5]:
+            d = str(t.get("publishedDate", ""))[:10]
+            pt = t.get("priceTarget") or t.get("adjPriceTarget")
+            an = t.get("analystCompany") or t.get("analystName") or ""
+            out.append(f"  {d} {an}: target {pt}")
+    if estimates:
+        e = estimates[0] if isinstance(estimates, list) and estimates else {}
+        rev = e.get("estimatedRevenueAvg")
+        eps = e.get("estimatedEpsAvg")
+        if rev or eps:
+            out.append(f"Consensus (next period): revenue ~{rev}, EPS ~{eps}")
+    return "\n".join(out)
+
+
+def _fmt_profile(p) -> str:
+    if isinstance(p, list):
+        p = p[0] if p else {}
+    if not isinstance(p, dict):
+        return ""
+    name = p.get("companyName", "")
+    sector = p.get("sector", "")
+    desc = (p.get("description") or "")[:600]
+    return f"{name} ({sector}): {desc}" if desc else ""
+
+
 def build_one(ticker: str, company: str, macro: dict) -> dict:
     import fmp
     import screener_alpha
@@ -156,6 +198,10 @@ def build_one(ticker: str, company: str, macro: dict) -> dict:
         "announcements": _safe(lambda: nse_bse.build_nse_bse_context(ticker)),
         "news_yf": _yf_news(ticker),
         "news_web": _tavily_news(company, ticker),
+        "earnings": _safe(lambda: _fmt_earnings(fmp.get_earnings_surprises(ticker, limit=6))),
+        "analyst": _safe(lambda: _fmt_analyst(fmp.get_price_targets(ticker, limit=5),
+                                              fmp.get_analyst_estimates(ticker, limit=2))),
+        "profile": _safe(lambda: _fmt_profile(fmp.get_company_profile(ticker))),
         "macro": macro,
     }
 

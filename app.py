@@ -3911,7 +3911,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col4:
         with st.spinner("yfinance: fetching company profile…"):
-            nse_bse_ctx = _fetch_yf_company_context(ticker, row) if st.session_state.get("src_fund", True) else ""
+            nse_bse_ctx = _ctx_or_live(_cc.get("profile"), (lambda: _fetch_yf_company_context(ticker, row)), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if nse_bse_ctx else "#F0B429"};">'
             f'{"✅ Company profile loaded" if nse_bse_ctx else "⚠️ Company profile unavailable"}</div>',
@@ -3941,8 +3941,8 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col7:
         with st.spinner("Tavily / Exa: searching latest news…"):
-            tavily_ctx = _fetch_tavily_context(name, ticker, _TAVILY_KEY) if (_TAVILY_KEY and st.session_state.get("src_news", True)) else ""
-            exa_ctx    = _fetch_exa_context(name, ticker, _EXA_KEY) if (_EXA_KEY and st.session_state.get("src_news", True)) else ""
+            tavily_ctx = _ctx_or_live(_cc.get("news_web"), (lambda: _fetch_tavily_context(name, ticker, _TAVILY_KEY) if _TAVILY_KEY else ""), st.session_state.get("src_news", True))
+            exa_ctx    = _ctx_or_live(_cc.get("news_yf"), (lambda: _fetch_exa_context(name, ticker, _EXA_KEY) if _EXA_KEY else ""), st.session_state.get("src_news", True))
         web_ctx_ok = bool(tavily_ctx or exa_ctx)
         web_label  = ("✅ Exa + Tavily search loaded" if (exa_ctx and tavily_ctx)
                       else "✅ Exa neural search loaded" if exa_ctx
@@ -3959,7 +3959,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col8:
         with st.spinner("yfinance / FMP: analyst targets…"):
-            upgrades_ctx = _fetch_yf_upgrades_context(ticker) if st.session_state.get("src_fund", True) else ""
+            upgrades_ctx = _ctx_or_live(_cc.get("analyst"), (lambda: _fetch_yf_upgrades_context(ticker)), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if upgrades_ctx else "#8B949E"};">'
             f'{"✅ Analyst targets loaded" if upgrades_ctx else "ℹ️ Analyst view via news flow"}</div>',
@@ -3968,7 +3968,7 @@ def _render_spotlight(ticker: str, row: dict, params: dict):
 
     with src_col9:
         with st.spinner("FMP: earnings surprises…"):
-            earnings_surprise_ctx = _fetch_fmp_earnings_surprise_context(ticker) if st.session_state.get("src_fund", True) else ""
+            earnings_surprise_ctx = _ctx_or_live(_cc.get("earnings"), (lambda: _fetch_fmp_earnings_surprise_context(ticker)), st.session_state.get("src_fund", True))
         st.markdown(
             f'<div style="font-size:11px;color:{"#3FB950" if earnings_surprise_ctx else "#F0B429"};">'
             f'{"✅ Earnings history loaded" if earnings_surprise_ctx else "⚠️ Earnings data unavailable"}</div>',
