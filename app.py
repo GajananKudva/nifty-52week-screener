@@ -1994,11 +1994,13 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         _cc = _load_ctx_cache(ticker)
         _gp = []
         for _k, _lbl in (("fmp", "FMP FUNDAMENTALS"), ("screener", "SCREENER.IN 10-YR"),
+                         ("yfinance", "YFINANCE FUNDAMENTALS"), ("earnings", "EARNINGS SURPRISES"),
+                         ("analyst", "ANALYST TARGETS"), ("profile", "COMPANY PROFILE"),
                          ("announcements", "EXCHANGE ANNOUNCEMENTS"),
                          ("news_web", "WEB NEWS"), ("news_yf", "YFINANCE NEWS")):
             _v = str(_cc.get(_k) or "").strip()
             if _v:
-                _gp.append(f"=== {_lbl} ===\n{_v[:1500]}")
+                _gp.append(f"=== {_lbl} ===\n{_v[:900]}")
         _ground = "\n\n".join(_gp)
         _ground_block = (
             f"PRE-LOADED FUNDAMENTALS & FILINGS (SAME data as the detailed report — "
@@ -2032,27 +2034,8 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
         # ── Step 2: single LLM call with full context ─────────────────────────
         client = _OpenAI(api_key=_GROQ_KEY, base_url=_GROQ_BASE_URL)
 
-        system_msg = f"""You are a senior equity analyst. Today's date is {today}. Analyze ONLY {company} (NSE: {clean_ticker}), a {sector} company, which has just hit its 52-week {direction}.
-
-EVIDENCE: You CANNOT browse the web. Use ONLY the NEWS CONTEXT and the PRE-LOADED FUNDAMENTALS & FILINGS provided in the user message (the SAME data the detailed report uses). Prioritise BSE/NSE exchange filings and tier-1 outlets (Reuters/ET/Mint/MoneyControl) within it. Date each catalyst by the EVENT date. If the freshest item is older than 20 days, set is_stale=true.
-
-CATALYST RANKING (critical): the catalyst you report MUST be the ROOT-CAUSE business event — quarterly results/earnings, an order or contract win, M&A or a stake sale, a regulatory approval, capacity expansion/capex, a major project or deal, dividend/buyback, or guidance (with a figure). An analyst rating change, price-target revision or brokerage note (e.g. "Goldman raises target") is a REACTION, NOT a root cause — NEVER report it as the catalyst; instead name the underlying business event it reacts to. Price/volume movement is never a catalyst.
-
-SEARCH ORDER (follow strictly, NEWEST-FIRST): (1) FIRST examine news from TODAY, YESTERDAY and the DAY BEFORE (days 0-2 from today). A stock hitting a FRESH 52-week extreme is almost always triggered by something in this window — if a material company-specific event is here, THAT is the catalyst. (2) If nothing material in days 0-2, widen to 3-7 days ago. (3) ONLY if no triggering event is found in the last ~7 days, fall back to the older event where the run/momentum began. Weight days 0-3 FAR above anything older; an older, larger earnings result is background momentum, NOT the trigger — use it only when no recent (0-7 day) company event exists. Always show the event date so its recency is visible.
-
-ENTITY-ISOLATION RULES (critical):
-- Report ONLY catalysts that explicitly name "{company}" or "{clean_ticker}".
-- Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers to {company}, even if they share a brand or promoter.
-- If a headline refers to the group/holding entity rather than {clean_ticker} specifically, treat it as group-level (not {clean_ticker}-specific) and exclude it.
-- If you cannot verify a catalyst names {company} directly, exclude it.
-- DATE = EVENT DATE (the earnings/board-meeting/order date), NOT the article publish date.
-- Do NOT describe price movement or volume as the catalyst — find the ROOT CAUSE business event, and use the company name (not the ticker) in the headline.
-
-Identify THE SINGLE most material AND most recent company-specific catalyst that DIRECTLY caused this 52-week {direction} — the biggest, freshest event (largest figure, closest to today). If several candidate events exist, pick the most impactful recent one and IGNORE older or smaller events; NEVER present a stale "momentum origin" or an older minor deal as the catalyst. Flag any conflicting or unverified reports, and note explicitly if news flow is thin or stale.
-
-OUTPUT — Return ONLY valid JSON, no markdown, no extra text:
-{{"headline": "DD Mon YYYY: specific ROOT CAUSE catalyst under 90 chars — must include a figure", "impact_pct": "+X% or N/A", "catalyst_date": "DD Mon YYYY or Not found", "is_stale": false, "source": "publication name"}}
-Set is_stale=true if the most recent item you can find is older than 7 days from today ({today}). If no verified catalyst names {company} directly, set headline to "{company} — no verified catalyst found" and is_stale=true."""
+        import analyst_prompt as _apr
+        system_msg = _apr.system_prompt(company, clean_ticker, sector, ("high" if is_hi else "low"), today, primary_only=True)
 
         ret1m_str = f"{ret1m:+.1f}%" if ret1m else "N/A"
         ret3m_str = f"{ret3m:+.1f}%" if ret3m else "N/A"
@@ -2243,38 +2226,8 @@ def _ai_deep_dive(ticker: str, company: str, sector: str, signal: str,
 
     _m_macro, _m_finn, _m_fund, _m_news = _src_flags()
     macro_ctx = _macro_sector_ctx(sector, _m_macro, _m_finn, _m_fund)
-    system_prompt = f"""You are a senior equity analyst. Today is {_today_str}. Analyze ONLY {company} (NSE: {_clean_ticker}), a {sector} company, which has just hit its 52-week {_action_word}.
-
-Focus your research on answering this question: WHY did {company} hit its 52-week {_action_word}? Use the categories below as a guide, but prioritize the categories most relevant to the question.
-
-RESEARCH METHODOLOGY — search the web for EACH of these categories:
-1. Current stock price and today's movement
-2. Latest earnings results or guidance updates
-3. Analyst upgrades/downgrades or price-target changes (CONTEXT ONLY — never the primary reason)
-4. Company-specific news (products, partnerships, leadership, legal)
-5. Sector/industry trends affecting this stock
-6. Macro factors (RBI/Fed policy, economic data, geopolitics) relevant to this stock
-7. Insider transactions or institutional activity (if notable)
-
-SEARCH PRIORITY: Rely FIRST on your own live web search — prioritize BSE/NSE exchange filings, {company}'s own investor-relations releases, and tier-1 financial press (Reuters/ET/Mint/MoneyControl). Any "NEWS & RESEARCH CONTEXT" block supplied in the user message (Exa/Tavily/FMP) is SECONDARY corroboration only: give your own fresh search results higher weight and never let stale supplied context override newer information you find.
-
-ENTITY ISOLATION: Report ONLY catalysts that explicitly name {company} or {_clean_ticker}. Do NOT attribute news from the parent group, subsidiaries, JVs, or sector peers, even if they share a brand or promoter. Date every catalyst by the EVENT date, not the article publish date.
-
-After researching, respond with ONLY raw JSON — no markdown, no code fences, no explanation before or after.
-{{"sentiment":"bullish"|"bearish"|"mixed","confidence":"high"|"medium"|"low","catalysts":[{{"category":"earnings"|"analyst"|"macro"|"product"|"regulatory"|"insider"|"sector"|"technical"|"other","title":"Short headline","description":"1-2 sentence explanation","impact":"positive"|"negative"|"neutral"}}],"summary":"2-3 sentence summary","sources":["source names"]}}
-
-CATALYST RANKING (critical — this is what the user cares about most):
-- The #1 / PRIMARY catalyst MUST be the ROOT-CAUSE business event that actually caused the move: quarterly results / earnings, an order or contract win, M&A or a stake sale, a regulatory approval or ruling, capacity expansion / capex, a major project or deal, dividend / buyback, or management guidance — always with a figure.
-- An analyst rating change, price-target revision, or brokerage research note (e.g. "Goldman Sachs raises target", "Nomura upgrades to Buy") is a REACTION / opinion, NOT a root cause. It may appear ONLY as a lower-ranked supporting catalyst — NEVER as catalyst #1 / the Primary Driver.
-- If the freshest thing you find is an analyst note, identify the underlying BUSINESS event the analyst is reacting to and rank THAT event #1.
-- Price or volume movement is never a catalyst — always find the business event behind it.
-- SEARCH ORDER (newest-first): FIRST check TODAY / YESTERDAY / the DAY BEFORE (days 0-2) for a material company event — the trigger of a fresh 52-week extreme almost always sits here; if found, it is #1. If nothing in days 0-2, widen to 3-7 days ago. ONLY if no triggering event exists in the last ~7 days, fall back to the older event where the run began. Weight days 0-3 far above older events; an older bigger earnings result is background momentum, not the trigger, unless nothing recent exists.
-
-QUALITY GUIDELINES:
-- Return 4-6 catalysts with the ROOT-CAUSE business event ranked #1, then the rest by recency and impact
-- Each catalyst must reference a specific event with an approximate date and must name {company} directly
-- Summary should connect the dots between the catalysts
-- Sources must be specific (e.g. "Reuters, Feb 18" not just "news")"""
+    import analyst_prompt as _apr
+    system_prompt = _apr.system_prompt(company, _clean_ticker, sector, _action_word, _today_str, primary_only=False)
 
     user_prompt = f"""Research question: WHY did {company} (NSE: {_clean_ticker}, {sector}) hit its 52-week {_action_word}? Today is {_today_str}.
 
