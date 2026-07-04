@@ -1961,6 +1961,12 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
     """
     if not _AI_OK:
         return {}
+    if not _GROQ_KEY:
+        return {
+            "headline":      f"{company} — Major-Catalyst AI key missing (set GROQ_API_KEY)",
+            "impact_pct":    "N/A", "catalyst_date": "", "is_stale": True,
+            "source":        "config error: GROQ_API_KEY not set", "no_catalyst": True,
+        }
     try:
         from datetime import date as _date
         today        = _date.today().strftime("%d %B %Y")
@@ -2123,15 +2129,24 @@ def _quick_catalyst_groq(ticker: str, company: str, sector: str,
             result["is_stale"]      = True
         return result
 
-    except Exception:
-        # ── Honest fallback — no fabricated momentum origin ───────────────────
+    except Exception as _qe:
+        import sys as _sys, traceback as _tb
+        _tb.print_exc()
+        _reason = (str(_qe).splitlines()[0][:180] if str(_qe).strip() else type(_qe).__name__)
+        print(f"[quick_catalyst_groq] {ticker} FAILED -> {type(_qe).__name__}: {_reason}", file=_sys.stderr)
+        # "bad_headline" means the model DID answer but with no valid catalyst — that
+        # is an honest no-catalyst result, not an API failure.
+        if str(_qe) == "bad_headline":
+            return {
+                "headline":      f"{company} — no verified catalyst found in the evidence",
+                "impact_pct":    "N/A", "catalyst_date": "Not found", "is_stale": True,
+                "source":        "No company-specific catalyst", "no_catalyst": True,
+            }
+        # A real API/parse error — SHOW it so the cause is visible, not hidden.
         return {
-            "headline":        f"{company} — no verified catalyst found in the evidence",
-            "impact_pct":      "N/A",
-            "catalyst_date":   "Not found",
-            "is_stale":        True,
-            "source":          "No company-specific catalyst",
-            "no_catalyst":     True,
+            "headline":      f"{company} — Major-Catalyst AI error: {type(_qe).__name__}",
+            "impact_pct":    "N/A", "catalyst_date": "Not found", "is_stale": True,
+            "source":        f"AI error: {_reason}", "no_catalyst": True, "_error": _reason,
         }
 
 
