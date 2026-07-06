@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-06T15:22:24.858284+00:00",
-  "generated_at_ist": "06 Jul 2026 · 20:52 IST",
-  "duration_seconds": 213.5,
+  "generated_at_utc": "2026-07-06T17:59:47.330240+00:00",
+  "generated_at_ist": "06 Jul 2026 · 23:29 IST",
+  "duration_seconds": 164.0,
   "universe_size": 2400,
   "params": {
     "high_low_window": 252,
@@ -662,7 +662,7 @@
       "avg_vol_20d": 244270,
       "current_vol": 393646,
       "pe_ratio": 39.6,
-      "forward_pe": 27.12,
+      "forward_pe": 27.14,
       "beta": 0.05,
       "intrinsic_value": 582.71,
       "upside_downside_pct": -67.31,
