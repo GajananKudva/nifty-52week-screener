@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-09T20:18:40.452480+00:00",
-  "generated_at_ist": "10 Jul 2026 · 01:48 IST",
-  "duration_seconds": 149.2,
+  "generated_at_utc": "2026-07-09T21:57:45.148291+00:00",
+  "generated_at_ist": "10 Jul 2026 · 03:27 IST",
+  "duration_seconds": 177.8,
   "universe_size": 2384,
   "params": {
     "high_low_window": 252,
@@ -78,13 +78,7 @@
       "market_cap": 1944276041728.0,
       "days_since_prior_high": 1.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Energy & Utilities Roundup: Market Talk",
-        "Factbox-A look at Indian billionaire Gautam Adani's businesses",
-        "Four Indian stocks added, four excluded from key global index in MSCI's May rejig",
-        "Adani Energy Solutions Ltd (BOM:539254) Q4 2026 Earnings Call Highlights: Strategic Growth and ...",
-        "Adani launches 1GW HVDC link in Mumbai, India"
-      ],
+      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -274,7 +268,7 @@
       "industry": "Auto Parts",
       "current_price": 662.05,
       "week_52_high": 680.8,
-      "week_52_low": 399.84,
+      "week_52_low": 399.83,
       "pct_from_high": 0.0,
       "pct_from_low": 64.54,
       "volume_surge": 1.6,
