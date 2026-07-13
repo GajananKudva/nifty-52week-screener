@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-13T20:13:06.707343+00:00",
-  "generated_at_ist": "14 Jul 2026 · 01:43 IST",
-  "duration_seconds": 252.7,
+  "generated_at_utc": "2026-07-13T21:31:22.495901+00:00",
+  "generated_at_ist": "14 Jul 2026 · 03:01 IST",
+  "duration_seconds": 224.6,
   "universe_size": 2402,
   "params": {
     "high_low_window": 252,
@@ -1512,7 +1512,10 @@
       "market_cap": 41717899264.0,
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [],
+      "news_headlines": [
+        "Cyient DLM Ltd (BOM:543933) Q4 2026 Earnings Call Highlights: Navigating Challenges with ...",
+        "Cyient DLM Ltd (BOM:543933) Q3 2026 Earnings Call Highlights: Navigating Revenue Decline with ..."
+      ],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -1859,7 +1862,7 @@
       "ret_3m": 77.1,
       "ret_6m": 175.01,
       "ret_1y": 116.1,
-      "market_cap": 20641050624.0,
+      "market_cap": 20670763008.0,
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
       "news_headlines": [],
