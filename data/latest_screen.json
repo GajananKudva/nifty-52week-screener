@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-14T21:33:11.843287+00:00",
-  "generated_at_ist": "15 Jul 2026 · 03:03 IST",
-  "duration_seconds": 241.1,
-  "universe_size": 2385,
+  "generated_at_utc": "2026-07-14T22:35:45.012256+00:00",
+  "generated_at_ist": "15 Jul 2026 · 04:05 IST",
+  "duration_seconds": 243.2,
+  "universe_size": 2387,
   "params": {
     "high_low_window": 252,
     "breakout_threshold": 0.0,
@@ -891,7 +891,11 @@
       "market_cap": 122091954176.0,
       "days_since_prior_high": 3.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [],
+      "news_headlines": [
+        "Shilpa Medicare Ltd (BOM:530549) Q4 2026 Earnings Call Highlights: Record Revenue Growth and ...",
+        "Shilpa Medicare Ltd (BOM:530549) Q3 2026 Earnings Call Highlights: Record Revenue and Strategic ...",
+        "Shilpa Medicare Ltd (BOM:530549) Q2 2026 Earnings Call Highlights: Record EBITDA and Strategic ..."
+      ],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -1295,7 +1299,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 110309,
       "current_vol": 121760,
-      "pe_ratio": 198.08,
+      "pe_ratio": 195.73,
       "forward_pe": 41.67,
       "beta": 0.6,
       "intrinsic_value": NaN,
@@ -1729,7 +1733,9 @@
       "market_cap": 29109428224.0,
       "days_since_prior_high": 6.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [],
+      "news_headlines": [
+        "Satin Creditcare Network Ltd (BOM:539404) Q3 2026 Earnings Call Highlights: Robust Growth Amid ..."
+      ],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -2002,7 +2008,7 @@
       "ret_3m": 65.01,
       "ret_6m": 151.59,
       "ret_1y": 97.84,
-      "market_cap": 19988983808.0,
+      "market_cap": 19960252416.0,
       "days_since_prior_high": 3.0,
       "high_type": "CONTINUATION",
       "news_headlines": [],
@@ -2035,7 +2041,10 @@
       "market_cap": 19904894976.0,
       "days_since_prior_high": 61.0,
       "high_type": "NEW",
-      "news_headlines": [],
+      "news_headlines": [
+        "Suryoday Small Finance Bank Ltd (BOM:543279) Q4 2026 Earnings Call Highlights: Strong Growth in ...",
+        "Suryoday Small Finance Bank Ltd (BOM:543279) Q3 2026 Earnings Call Highlights: Strong Growth in ..."
+      ],
       "signal": "BREAKOUT_HIGH"
     },
     {
