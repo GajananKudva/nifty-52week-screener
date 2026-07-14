@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-14T20:12:39.077993+00:00",
-  "generated_at_ist": "15 Jul 2026 · 01:42 IST",
-  "duration_seconds": 358.7,
+  "generated_at_utc": "2026-07-14T21:33:11.843287+00:00",
+  "generated_at_ist": "15 Jul 2026 · 03:03 IST",
+  "duration_seconds": 241.1,
   "universe_size": 2385,
   "params": {
     "high_low_window": 252,
@@ -891,11 +891,7 @@
       "market_cap": 122091954176.0,
       "days_since_prior_high": 3.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Shilpa Medicare Ltd (BOM:530549) Q4 2026 Earnings Call Highlights: Record Revenue Growth and ...",
-        "Shilpa Medicare Ltd (BOM:530549) Q3 2026 Earnings Call Highlights: Record Revenue and Strategic ...",
-        "Shilpa Medicare Ltd (BOM:530549) Q2 2026 Earnings Call Highlights: Record EBITDA and Strategic ..."
-      ],
+      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -942,7 +938,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 326301,
       "current_vol": 370101,
-      "pe_ratio": 41.28,
+      "pe_ratio": 41.16,
       "forward_pe": 21.84,
       "beta": NaN,
       "intrinsic_value": 119.8,
@@ -1299,7 +1295,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 110309,
       "current_vol": 121760,
-      "pe_ratio": 195.73,
+      "pe_ratio": 198.08,
       "forward_pe": 41.67,
       "beta": 0.6,
       "intrinsic_value": NaN,
@@ -1733,9 +1729,7 @@
       "market_cap": 29109428224.0,
       "days_since_prior_high": 6.0,
       "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Satin Creditcare Network Ltd (BOM:539404) Q3 2026 Earnings Call Highlights: Robust Growth Amid ..."
-      ],
+      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -2008,7 +2002,7 @@
       "ret_3m": 65.01,
       "ret_6m": 151.59,
       "ret_1y": 97.84,
-      "market_cap": 19960252416.0,
+      "market_cap": 19988983808.0,
       "days_since_prior_high": 3.0,
       "high_type": "CONTINUATION",
       "news_headlines": [],
@@ -2041,10 +2035,7 @@
       "market_cap": 19904894976.0,
       "days_since_prior_high": 61.0,
       "high_type": "NEW",
-      "news_headlines": [
-        "Suryoday Small Finance Bank Ltd (BOM:543279) Q4 2026 Earnings Call Highlights: Strong Growth in ...",
-        "Suryoday Small Finance Bank Ltd (BOM:543279) Q3 2026 Earnings Call Highlights: Strong Growth in ..."
-      ],
+      "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
     },
     {
@@ -2553,7 +2544,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 26099347,
       "current_vol": 9688301,
-      "pe_ratio": 15.09,
+      "pe_ratio": 14.93,
       "forward_pe": 9.18,
       "beta": 0.28,
       "intrinsic_value": NaN,
@@ -2566,7 +2557,13 @@
       "market_cap": 1045315518464.0,
       "days_since_prior_high": NaN,
       "high_type": NaN,
-      "news_headlines": [],
+      "news_headlines": [
+        "Vedanta pulls listing of copper unit day before IPO",
+        "Vedanta Chair Confident About Dividends, Focused on Growth as Indian Conglomerate Splits Up",
+        "Reliance, Vedanta, Adani join India's drive to cut China rare earth dependence, sources say",
+        "India's Vedanta says no penalty imposed following enforcement agency searches",
+        "India’s financial crime agency searches Vedanta premises, ET says"
+      ],
       "signal": "BREAKDOWN_LOW"
     },
     {
