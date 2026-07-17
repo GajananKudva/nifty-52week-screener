@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-17T21:15:58.480374+00:00",
-  "generated_at_ist": "18 Jul 2026 · 02:45 IST",
-  "duration_seconds": 133.0,
+  "generated_at_utc": "2026-07-17T22:17:33.711026+00:00",
+  "generated_at_ist": "18 Jul 2026 · 03:47 IST",
+  "duration_seconds": 294.6,
   "universe_size": 2384,
   "params": {
     "high_low_window": 252,
@@ -984,7 +984,7 @@
       "ret_3m": 29.83,
       "ret_6m": 23.39,
       "ret_1y": 1.4,
-      "market_cap": 51933134848.0,
+      "market_cap": 51925008384.0,
       "days_since_prior_high": 50.0,
       "high_type": "NEW",
       "news_headlines": [
