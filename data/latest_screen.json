@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-24T20:17:05.299146+00:00",
-  "generated_at_ist": "25 Jul 2026 · 01:47 IST",
-  "duration_seconds": 140.2,
+  "generated_at_utc": "2026-07-24T21:37:55.604039+00:00",
+  "generated_at_ist": "25 Jul 2026 · 03:07 IST",
+  "duration_seconds": 151.9,
   "universe_size": 2387,
   "params": {
     "high_low_window": 252,
@@ -1060,7 +1060,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 11121942,
       "current_vol": 6291068,
-      "pe_ratio": 16.44,
+      "pe_ratio": 16.35,
       "forward_pe": 12.0,
       "beta": 0.35,
       "intrinsic_value": NaN,
