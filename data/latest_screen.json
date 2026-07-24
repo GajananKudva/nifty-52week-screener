@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-24T15:57:13.585947+00:00",
-  "generated_at_ist": "24 Jul 2026 · 21:27 IST",
-  "duration_seconds": 270.8,
+  "generated_at_utc": "2026-07-24T17:26:43.926960+00:00",
+  "generated_at_ist": "24 Jul 2026 · 22:56 IST",
+  "duration_seconds": 163.1,
   "universe_size": 2387,
   "params": {
     "high_low_window": 252,
@@ -148,6 +148,7 @@
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
       "news_headlines": [
+        "Sona Comstar and Denso team up on powertrain systems in India",
         "Sona BLW Precision Forgings Ltd (BOM:543300) Q3 2026 Earnings Call Highlights: Record Revenue ..."
       ],
       "signal": "BREAKOUT_HIGH"
@@ -722,7 +723,7 @@
       "current_vol": 78669108,
       "pe_ratio": 10.71,
       "forward_pe": 5.97,
-      "beta": NaN,
+      "beta": 0.48,
       "intrinsic_value": NaN,
       "upside_downside_pct": NaN,
       "dcf_stage1_growth": NaN,
