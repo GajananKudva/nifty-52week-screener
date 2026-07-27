@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-07-27T22:03:06.641713+00:00",
-  "generated_at_ist": "28 Jul 2026 · 03:33 IST",
-  "duration_seconds": 181.5,
+  "generated_at_utc": "2026-07-27T23:13:19.894856+00:00",
+  "generated_at_ist": "28 Jul 2026 · 04:43 IST",
+  "duration_seconds": 233.3,
   "universe_size": 2387,
   "params": {
     "high_low_window": 252,
@@ -127,7 +127,7 @@
       "industry": "Auto Parts",
       "current_price": 717.95,
       "week_52_high": 741.65,
-      "week_52_low": 399.84,
+      "week_52_low": 399.83,
       "pct_from_high": 0.0,
       "pct_from_low": 76.32,
       "volume_surge": 3.41,
