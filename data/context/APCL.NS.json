@@ -1,0 +1,21 @@
+{
+  "ticker": "APCL.NS",
+  "company": "APCL.NS",
+  "date": "2026-08-13",
+  "generated_at_utc": "2026-08-13T06:18:41.087384+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "",
+  "yfinance": "=== yfinance Fundamentals: APCL.NS ===\nProfile: Sector=Basic Materials | Industry=Building Materials | Exchange=NSI | 52W=[Rs98–Rs152] | AvgVol=8,046\nAnalyst: Consensus=None\nValuation: P/B=0.83x | EV/EBITDA=19.69x | EV/Revenue=1.45x\nEarnings: EPS (TTM)=Rs-9.80 | Rev Growth=-10.70%\nProfitability: Gross Margin=38.57% | Op Margin=4.16% | Net Margin=-6.32% | ROE=-7.96% | ROA=-0.06%\nBalance Sheet: D/E=0.62x | Current Ratio=0.93x | Quick Ratio=0.13x | Free CF=Rs-59 Cr | Op CF=Rs-29 Cr\nMarket: Mkt Cap=Rs303 Cr | Ent Value=Rs660 Cr | Beta=0.65x\nBusiness: Anjani Portland Cement Limited manufactures and trades in cement in India. It operates through the Cement and Power Plant segments. The company offers Ordinary Portland, Portland Pozzolana, rapid hardening Portland, and composite cement. It is also involved in the power generation activities. The company was formerly known as Shez Cement Limited an…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 13 August 2026\n============================================================\n\nBrent Crude Oil [2026-08-11]\n  Current: 93.26 USD/bbl  (+0.56% vs prior)\n  India impact: Higher crude → India CAD widens, rupee weakens, oil companies pressured; lower crude → opposite\n\nUS Dollar Index (DXY) [2026-08-07]\n  Current: 119.06  (-0.37% vs prior)\n  India impact: Stronger DXY → FII outflows from India, rupee weakens; weaker DXY → FII inflows rise\n\nFed Funds Rate [2026-08-11]\n  Current: 3.63 %  (+0.00% vs prior)\n  India impact: Higher Fed rate → capital flows to USD, EM selling pressure; cuts → EM relief rally\n\nCBOE VIX [2026-08-11]\n  Current: 15.28  (-1.16% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\nUS 10Y Treasury Yield [2026-07-01]\n  Current: 4.60 %\n  India impact: Rising US 10Y → India bonds less attractive, FII debt outflows; falling → inflows\n\nYield Curve (10Y-2Y) [2026-08-12]\n  Current: 0.48 %  (+0.00% vs prior)\n  India impact: Negative spread = inverted curve = US recession risk → global risk-off, India hit\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 13 August 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.37  (+0.06% — rupee weaker vs USD)\n  India impact      : Weaker rupee raises import costs, pressures CAD, may deter FII inflows\n  Nifty 50          : 24,348.30  (-0.36% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Aug 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Date              : 13 Aug 2026 (live)\n  FII Net           : -1,002.50 Cr  [NET SELLER]\n    Buy / Sell      : Rs.16,584.64 Cr / Rs.17,587.14 Cr\n  DII Net           : +5,841.66 Cr  [NET BUYER]\n    Buy / Sell      : Rs.21,518.55 Cr / Rs.15,676.89 Cr\n  Reading           : FIIs selling, DIIs buying — domestic support absorbing foreign selling (SIP flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}
