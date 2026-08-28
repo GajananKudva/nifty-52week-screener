@@ -1,10 +1,10 @@
 {
   "ticker": "ASMS.NS",
   "company": "ASMS.NS",
-  "date": "2026-08-28",
-  "generated_at_utc": "2026-08-28T17:11:11.541506+00:00",
+  "date": "2026-08-29",
+  "generated_at_utc": "2026-08-28T19:34:03.033443+00:00",
   "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
-  "screener": "",
+  "screener": "=== Screener.in: ASMS ===\nAbout: \nQuarterly Results (last 4Q — Jun 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 8.83 | 48.34 | 34.39 | 11.97\n  Net Profit +: 0.45 | 2.45 | 2.08 | 0.92\n  EPS in Rs: 0.01 | 0.08 | 0.07 | 0.03\nAnnual P&L (Mar 2021 / Mar 2022 / Mar 2023 / Mar 2025 / Mar 2026):\n  Sales +: 63 | 65 | 52 | 40 | 104\n  OPM %: 9% | 9% | 3.8% | -0.7% | 4.6%\n  Net Profit +: -49 | -50 | 412 | 2 | 6\n  EPS in Rs: -14.46 | -14.77 | 13.54 | 0.06 | 0.20\nBalance Sheet (last 3 years):\n  Reserves: 498 | -2 | 4\n  Borrowings +: 0 | 0 | 9\n  Total Assets: 750 | 33 | 68\nShareholding Pattern (latest):\n  Promoters +: 65.82% (prev: 67.50%)\n  FIIs +: 1.50% (prev: 1.67%)\n  DIIs +: 0.22%\n  Public +: 32.47% (prev: 30.62%)",
   "yfinance": "=== yfinance Fundamentals: ASMS.NS ===\nProfile: Sector=Technology | Industry=Information Technology Services | Exchange=NSI | 52W=[Rs7–Rs18] | AvgVol=272,509\nAnalyst: Consensus=None\nValuation: P/E (TTM)=33.38x | P/B=6.11x | EV/EBITDA=29.39x | EV/Revenue=1.96x\nEarnings: EPS (TTM)=Rs0.21 | EPS Growth=400.00% | Rev Growth=35.50%\nProfitability: Gross Margin=9.72% | Op Margin=5.26% | Net Margin=6.53%\nBalance Sheet: D/E=0.26x\nMarket: Mkt Cap=Rs214 Cr | Ent Value=Rs210 Cr | Beta=0.27x\nBusiness: Avio Smart Market Stack Limited provides automatic identification, data capture, and financial inclusion services in India and internationally. The company offers a range of banking services, including financial inclusion, business correspondent, and business facilitation banking services. It also provides e-government solutions that include health…",
   "announcements": "",
   "news_yf": "",

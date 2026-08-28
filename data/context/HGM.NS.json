@@ -1,8 +1,8 @@
 {
   "ticker": "HGM.NS",
   "company": "Handson Global Management (HGM) Limited",
-  "date": "2026-08-28",
-  "generated_at_utc": "2026-08-28T17:11:10.566275+00:00",
+  "date": "2026-08-29",
+  "generated_at_utc": "2026-08-28T19:33:55.060407+00:00",
   "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
   "screener": "=== Screener.in: HGM ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 18.95 | 14.25 | 12.67 | 10.80\n  Net Profit +: 0.50 | -3.12 | -2.15 | -2.06\n  EPS in Rs: 0.40 | -2.48 | -1.71 | -1.64\nAnnual P&L (Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 12.06 | 16.12 | 22.47 | 59.48 | 56.67\n  OPM %: 19.90% | 16.69% | 16.42% | -1.66% | -8.03%\n  Net Profit +: 4.57 | 2.69 | 4.22 | -3.05 | -6.83\n  EPS in Rs: 3.63 | 2.14 | 3.35 | -2.42 | -5.43\nBalance Sheet (last 3 years):\n  Reserves: 10.25 | 11.46 | 7.79\n  Borrowings +: 1.05 | 1.41 | 23.50\n  Total Assets: 35.69 | 39.53 | 72.92\nShareholding Pattern (latest):\n  Promoters +: 50.41%\n  Public +: 49.59%\n  No. of Shareholders: 9,052 (prev: 9,255)",
   "yfinance": "=== yfinance Fundamentals: HGM.NS ===\nProfile: Sector=Technology | Industry=Information Technology Services | Exchange=NSI | 52W=[Rs42–Rs82] | AvgVol=7,978\nAnalyst: Consensus=None\nValuation: P/B=2.89x | EV/EBITDA=-85.08x | EV/Revenue=1.34x\nEarnings: EPS (TTM)=Rs-5.43 | Rev Growth=-20.60%\nProfitability: Gross Margin=14.93% | Op Margin=-15.64% | Net Margin=-12.08%\nBalance Sheet: D/E=1.15x\nMarket: Mkt Cap=Rs59 Cr | Ent Value=Rs76 Cr | Beta=0.47x\nBusiness: Handson Global Management (HGM) Limited, together with its subsidiaries, provides software and IT enabled services in North America, Asia Pacific, and the Middle East. It offers data entry services, software development, and support services; AI - driven pre -authorization transformation; AI-driven charting, coding, and billing transformation; auto…",

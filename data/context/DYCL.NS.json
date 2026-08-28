@@ -1,8 +1,8 @@
 {
   "ticker": "DYCL.NS",
   "company": "Dynamic Cables Limited",
-  "date": "2026-08-28",
-  "generated_at_utc": "2026-08-28T17:10:51.697322+00:00",
+  "date": "2026-08-29",
+  "generated_at_utc": "2026-08-28T19:32:47.792717+00:00",
   "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
   "screener": "=== Screener.in: DYCL ===\nAbout: \nQuarterly Results (last 4Q — ):\n  Sales +: \n  Net Profit +: \n  EPS in Rs: \nAnnual P&L ():\n  Sales +: \n  OPM %: \n  Net Profit +: \n  EPS in Rs: \nBalance Sheet (last 3 years):\n  Reserves: \n  Borrowings +: \n  Total Assets: \nShareholding Pattern (latest):\n  Promoters +: 68.18%\n  FIIs +: 0.67% (prev: 0.90%)\n  DIIs +: 0.98% (prev: 1.27%)\n  Public +: 30.17% (prev: 29.65%)",
   "yfinance": "=== yfinance Fundamentals: DYCL.NS ===\nProfile: Sector=Industrials | Industry=Electrical Equipment & Parts | Exchange=NSI | 52W=[Rs237–Rs491] | AvgVol=1,167,610\nAnalyst: Consensus=None\nValuation: P/E (TTM)=25.89x | P/B=5.17x | EV/EBITDA=16.90x | EV/Revenue=1.84x\nEarnings: EPS (TTM)=Rs18.83 | EPS Growth=37.00% | Rev Growth=33.20%\nProfitability: Gross Margin=19.32% | Op Margin=10.06% | Net Margin=7.10%\nBalance Sheet: D/E=0.09x\nMarket: Mkt Cap=Rs2,363 Cr | Ent Value=Rs2,363 Cr | Beta=0.09x | Div Yield=11.00%\nBusiness: Dynamic Cables Limited manufactures and supplies cables and conductors in India and internationally. The company offers 66 kV, MV, and LV unarmored aluminum cables; MV single-core aluminum armored and LV copper power cables; MV aerial bunched, LV aluminum multicore FRLS, LV copper armored, railway signaling, LV aerial bunched, UL, solar power AC/DC…",

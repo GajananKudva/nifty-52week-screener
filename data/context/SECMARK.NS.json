@@ -1,8 +1,8 @@
 {
   "ticker": "SECMARK.NS",
   "company": "SecMark Consultancy Limited",
-  "date": "2026-08-28",
-  "generated_at_utc": "2026-08-28T17:10:58.984682+00:00",
+  "date": "2026-08-29",
+  "generated_at_utc": "2026-08-28T19:33:18.855600+00:00",
   "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
   "screener": "=== Screener.in: SECMARK ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 9.33 | 7.25 | 14.30 | 10.35\n  Net Profit +: 0.86 | -1.88 | 4.49 | -0.19\n  EPS in Rs: 0.82 | -1.80 | 4.30 | -0.18\nAnnual P&L (Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 17.44 | 24.59 | 35.11 | 37.54 | 41.23\n  OPM %: -28.90% | 5.00% | 26.55% | 18.70% | 20.42%\n  Net Profit +: -5.22 | -2.43 | 4.29 | 2.57 | 3.28\n  EPS in Rs: -5.03 | -2.34 | 4.12 | 2.46 | 3.14\nBalance Sheet (last 3 years):\n  Reserves: 5.62 | 10.10 | 12.96\n  Borrowings +: 11.06 | 6.56 | 12.85\n  Total Assets: 31.31 | 33.84 | 48.18\nShareholding Pattern (latest):\n  Promoters +: 75.00%\n  Public +: 25.00%\n  No. of Shareholders: 1,542 (prev: 1,600)",
   "yfinance": "=== yfinance Fundamentals: SECMARK.NS ===\nProfile: Sector=Industrials | Industry=Consulting Services | Exchange=NSI | 52W=[Rs95–Rs152] | AvgVol=1,478\nAnalyst: Consensus=None\nValuation: P/E (TTM)=48.65x | P/B=6.75x | EV/EBITDA=38.28x | EV/Revenue=3.45x\nEarnings: EPS (TTM)=Rs3.11 | Rev Growth=55.50%\nProfitability: Gross Margin=71.23% | Op Margin=-4.12% | Net Margin=7.96%\nBalance Sheet: D/E=0.55x\nMarket: Mkt Cap=Rs166 Cr | Ent Value=Rs142 Cr | Beta=0.08x\nBusiness: SecMark Consultancy Limited, together with its subsidiaries, provides consulting, technology, and outsourcing services to financial market participants in the areas of compliance, operations, software development, risk management, and others. It also offers IT infra management, system audit and IT security, forensic audit, compliance assistance, li…",

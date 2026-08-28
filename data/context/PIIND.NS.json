@@ -1,10 +1,10 @@
 {
   "ticker": "PIIND.NS",
   "company": "PI Industries Limited",
-  "date": "2026-08-28",
-  "generated_at_utc": "2026-08-28T17:11:03.205857+00:00",
+  "date": "2026-08-29",
+  "generated_at_utc": "2026-08-28T19:33:38.210783+00:00",
   "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
-  "screener": "",
+  "screener": "=== Screener.in: PIIND ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 1,872 | 1,376 | 1,565 | 1,702\n  Net Profit +: 409 | 311 | 200 | 244\n  EPS in Rs: 26.98 | 20.52 | 13.20 | 16.10\nAnnual P&L (Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 6,492 | 7,666 | 7,978 | 6,714 | 6,516\n  OPM %: 24% | 26% | 28% | 26% | 24%\n  Net Profit +: 1,230 | 1,682 | 1,660 | 1,321 | 1,165\n  EPS in Rs: 81.04 | 110.83 | 109.43 | 87.06 | 76.80\nBalance Sheet (last 3 years):\n  Reserves: 8,716 | 10,142 | 11,215\n  Borrowings +: 191 | 184 | 342\n  Total Assets: 10,744 | 12,249 | 13,405\nShareholding Pattern (latest):\n  Promoters +: 46.09%\n  FIIs +: 14.83% (prev: 15.87%)\n  DIIs +: 31.50% (prev: 31.20%)\n  Government +: 0.15%",
   "yfinance": "=== yfinance Fundamentals: PIIND.NS ===\nProfile: Sector=Basic Materials | Industry=Agricultural Inputs | Exchange=NSI | 52W=[Rs2,420–Rs3,833] | AvgVol=306,837\nAnalyst: Target(mean)=Rs2,915 | Target(high)=Rs5,300 | Target(low)=Rs2,010 | Consensus=Hold | Analysts=26\nValuation: P/E (TTM)=31.54x | P/E (Fwd)=22.79x | P/B=3.27x | EV/EBITDA=22.63x | EV/Revenue=5.15x\nEarnings: EPS (TTM)=Rs76.72 | EPS (Fwd)=Rs106.20 | EPS Growth=-38.90% | Rev Growth=-10.40%\nProfitability: Gross Margin=57.63% | Op Margin=15.49% | Net Margin=17.88%\nBalance Sheet: D/E=0.03x\nMarket: Mkt Cap=Rs36,714 Cr | Ent Value=Rs33,554 Cr | Beta=0.39x | Div Yield=61.00%\nBusiness: PI Industries Limited, together with its subsidiaries, manufactures and distributes of agricultural chemicals in India, rest of Asia, North America, Europe, and internationally. It operates through Agro Chemicals and Pharma segments. The company offers agrochemicals, including insecticides, fungicides, herbicides, and biologicals; crop solutions fo…",
   "announcements": "",
   "news_yf": "[2026-05-20] PI Industries Ltd (BOM:523642) Q4 2026 Earnings Call Highlights: Resilient Revenue Growth and ...\n[2026-02-13] PI Industries Ltd (BOM:523642) Q3 2026 Earnings Call Highlights: Strong Pharma Growth and ...\n[2025-11-12] PI Industries Ltd (BOM:523642) Q2 2026 Earnings Call Highlights: Navigating Growth Amidst Challenges",
