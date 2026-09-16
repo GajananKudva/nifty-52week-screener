@@ -1,0 +1,21 @@
+{
+  "ticker": "BGRENERGY.NS",
+  "company": "BGR Energy Systems Limited",
+  "date": "2026-09-16",
+  "generated_at_utc": "2026-09-16T09:43:22.415752+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "",
+  "yfinance": "=== yfinance Fundamentals: BGRENERGY.NS ===\nProfile: Sector=Industrials | Industry=Engineering & Construction | Exchange=NSI | 52W=[Rs218–Rs491] | AvgVol=50,705\nAnalyst: Consensus=None\nValuation: P/B=-0.59x | EV/EBITDA=-13.40x | EV/Revenue=26.62x\nEarnings: EPS (TTM)=Rs-164.20 | Rev Growth=-82.20%\nProfitability: Gross Margin=-113.26% | Op Margin=-653.33%\nMarket: Mkt Cap=Rs1,674 Cr | Ent Value=Rs6,038 Cr | Beta=0.78x\nBusiness: BGR Energy Systems Limited, together with its subsidiaries, manufactures and sells capital equipment for power plants, petrochemical and process industries, and refineries in India and internationally. The company is involved in the provision of turnkey engineering, procurement, and construction services for power plants; supply of sub and super cr…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 16 September 2026\n============================================================\n\nBrent Crude Oil [2026-09-09]\n  Current: 109.51 USD/bbl  (+3.19% vs prior)\n  India impact: Higher crude → India CAD widens, rupee weakens, oil companies pressured; lower crude → opposite\n\nUS Dollar Index (DXY) [2026-09-11]\n  Current: 118.21  (+0.11% vs prior)\n  India impact: Stronger DXY → FII outflows from India, rupee weakens; weaker DXY → FII inflows rise\n\nFed Funds Rate [2026-09-14]\n  Current: 3.63 %  (+0.00% vs prior)\n  India impact: Higher Fed rate → capital flows to USD, EM selling pressure; cuts → EM relief rally\n\nCBOE VIX [2026-09-14]\n  Current: 17.10  (+7.95% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\nUS 10Y Treasury Yield [2026-08-01]\n  Current: 4.68 %\n  India impact: Rising US 10Y → India bonds less attractive, FII debt outflows; falling → inflows\n\nYield Curve (10Y-2Y) [2026-09-15]\n  Current: 0.33 %  (+3.13% vs prior)\n  India impact: Negative spread = inverted curve = US recession risk → global risk-off, India hit\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 16 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.97  (+0.12% — rupee weaker vs USD)\n  India impact      : Weaker rupee raises import costs, pressures CAD, may deter FII inflows\n  Nifty 50          : 23,228.85  (+0.48% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}
