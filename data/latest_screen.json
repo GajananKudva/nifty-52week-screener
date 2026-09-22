@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-22T12:47:11.989133+00:00",
-  "generated_at_ist": "22 Sep 2026 · 18:17 IST",
-  "duration_seconds": 167.2,
+  "generated_at_utc": "2026-09-22T17:31:47.723884+00:00",
+  "generated_at_ist": "22 Sep 2026 · 23:01 IST",
+  "duration_seconds": 175.0,
   "universe_size": 2580,
   "params": {
     "high_low_window": 252,
@@ -344,7 +344,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 3723372,
       "current_vol": 5106886,
-      "pe_ratio": 76.38,
+      "pe_ratio": 76.65,
       "forward_pe": 24.02,
       "beta": 0.14,
       "intrinsic_value": NaN,
@@ -706,7 +706,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 261543,
       "current_vol": 1014112,
-      "pe_ratio": 122.35,
+      "pe_ratio": 122.87,
       "forward_pe": 56.43,
       "beta": NaN,
       "intrinsic_value": NaN,
@@ -845,7 +845,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 94729,
       "current_vol": 56049,
-      "pe_ratio": 45.6,
+      "pe_ratio": 45.5,
       "forward_pe": 27.05,
       "beta": -0.01,
       "intrinsic_value": NaN,
@@ -914,7 +914,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 11792,
       "current_vol": 14556,
-      "pe_ratio": 100.95,
+      "pe_ratio": 101.75,
       "forward_pe": NaN,
       "beta": 0.05,
       "intrinsic_value": NaN,
@@ -1077,7 +1077,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 3906457,
       "current_vol": 881469,
-      "pe_ratio": 20.76,
+      "pe_ratio": 20.79,
       "forward_pe": 224.02,
       "beta": 0.44,
       "intrinsic_value": NaN,
@@ -1524,7 +1524,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 774194,
       "current_vol": 789628,
-      "pe_ratio": 47.84,
+      "pe_ratio": 47.7,
       "forward_pe": NaN,
       "beta": -0.71,
       "intrinsic_value": NaN,
@@ -1683,7 +1683,7 @@
       "vol_confirmed": true,
       "avg_vol_20d": 5539,
       "current_vol": 315984,
-      "pe_ratio": 16.31,
+      "pe_ratio": 16.32,
       "forward_pe": NaN,
       "beta": 0.84,
       "intrinsic_value": NaN,
@@ -2430,11 +2430,11 @@
       "days_since_prior_high": NaN,
       "high_type": NaN,
       "news_headlines": [
+        "Indian Consumer Staples Stocks With Pricing Power As Inflation Heats Up",
         "Labour’s asylum crackdown hits Britain’s ‘worst hotel chain’",
         "Britannia Industries Ltd (BOM:500825) (Q1 2027) Earnings Call Highlights: Robust 9. ...",
         "India's Britannia rises as upbeat demand outlook, profit growth cheer investors",
-        "India's Britannia misses quarterly profit view as Middle East war pushes costs higher",
-        "India's Swiggy names Nandita Sinha as CEO of quick commerce arm Instamart"
+        "India's Britannia misses quarterly profit view as Middle East war pushes costs higher"
       ],
       "signal": "BREAKDOWN_LOW"
     },
@@ -2466,11 +2466,11 @@
       "days_since_prior_high": NaN,
       "high_type": NaN,
       "news_headlines": [
+        "Indian Consumer Staples Stocks With Pricing Power As Inflation Heats Up",
         "Starbucks Plans Global Capability Centre in India, Reuters Reports",
         "India's Marico beats quarterly profit view as Parachute oil maker sees strong demand",
         "India's Tata Consumer Products rises as growth businesses boost sentiment",
-        "Tata Consumer Products Ltd (BOM:500800) Q1 2027 Earnings Call Highlights: Strong Revenue Growth ...",
-        "India's Tata Consumer warns of more price hikes if costs stay volatile"
+        "Tata Consumer Products Ltd (BOM:500800) Q1 2027 Earnings Call Highlights: Strong Revenue Growth ..."
       ],
       "signal": "BREAKDOWN_LOW"
     },
