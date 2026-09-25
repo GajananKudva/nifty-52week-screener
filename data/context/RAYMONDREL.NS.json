@@ -1,0 +1,21 @@
+{
+  "ticker": "RAYMONDREL.NS",
+  "company": "RAYMONDREL.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:02:30.061516+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: RAYMONDREL ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 696 | 758 | 1,157 | 527\n  Net Profit +: 60 | 67 | 161 | 13\n  EPS in Rs: 9.04 | 10.03 | 24.20 | 2.02\nAnnual P&L ( / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 3 | 565 | 2,991 | 3,137\n  OPM %: -543% | 11% | 15% | 15%\n  Net Profit +: -44 | 18 | 305 | 302\n  EPS in Rs:  |  | 45.75 | 45.29\nBalance Sheet (last 3 years):\n  Reserves: -1 | 46 | 1,501\n  Borrowings +: 231 | 467 | 1,014\n  Total Assets: 762 | 1,305 | 7,062\nShareholding Pattern (latest):\n  Promoters +: 50.93% (prev: 50.71%)\n  FIIs +: 5.85% (prev: 7.62%)\n  DIIs +: 2.90% (prev: 3.92%)\n  Public +: 40.29% (prev: 37.72%)",
+  "yfinance": "=== yfinance Fundamentals: RAYMONDREL.NS ===\nProfile: Sector=Real Estate | Industry=Real Estate - Development | Exchange=NSI | 52W=[Rs349–Rs742] | AvgVol=1,080,745\nAnalyst: Consensus=None\nValuation: P/E (TTM)=15.79x | P/B=3.02x | EV/EBITDA=11.11x | EV/Revenue=1.71x\nEarnings: EPS (TTM)=Rs45.05 | EPS Growth=-18.50% | Rev Growth=40.70%\nProfitability: Gross Margin=27.93% | Op Margin=10.12% | Net Margin=9.60%\nBalance Sheet: D/E=0.65x\nMarket: Mkt Cap=Rs4,734 Cr | Ent Value=Rs5,373 Cr | Div Yield=28.00%\nBusiness: Raymond Realty Limited, through its subsidiaries, engages in the development and sale of housing projects in India. Its projects include residential and commercial properties. The company was formerly known as Raymond Lifestyle Limited and changed its name to Raymond Realty Limited in January 2024. The company was founded in 1925 and is headquarter…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

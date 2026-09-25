@@ -1,0 +1,21 @@
+{
+  "ticker": "LAMBODHARA.NS",
+  "company": "LAMBODHARA.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:02:22.648968+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: LAMBODHARA ===\nAbout: \nQuarterly Results (last 4Q — ):\n  Sales +: \n  Net Profit +: \n  EPS in Rs: \nAnnual P&L ():\n  Sales +: \n  OPM %: \n  Net Profit +: \n  EPS in Rs: \nBalance Sheet (last 3 years):\n  Reserves: \n  Borrowings +: \n  Total Assets: \nShareholding Pattern (latest):\n  Promoters +: 73.17%\n  FIIs +: 0.16%\n  Public +: 26.65% (prev: 26.66%)\n  No. of Shareholders: 10,360 (prev: 10,367)",
+  "yfinance": "=== yfinance Fundamentals: LAMBODHARA.NS ===\nProfile: Sector=Consumer Cyclical | Industry=Textile Manufacturing | Exchange=NSI | 52W=[Rs82–Rs154] | AvgVol=37,659\nAnalyst: Consensus=None\nValuation: P/E (TTM)=10.14x | P/B=1.14x | EV/EBITDA=5.68x | EV/Revenue=0.65x\nEarnings: EPS (TTM)=Rs13.92 | EPS Growth=65.40% | Rev Growth=-8.80%\nProfitability: Gross Margin=25.09% | Op Margin=6.98% | Net Margin=5.34%\nBalance Sheet: D/E=0.30x\nMarket: Mkt Cap=Rs147 Cr | Ent Value=Rs152 Cr | Beta=0.41x | Div Yield=36.00%\nBusiness: Lambodhara Textiles Limited manufactures and sells synthetic yarns in India. The company operates through Textile, Power Generation, and Real Estate segments. It offers slub, multi count and multi twist, siro, and neppy yarns. In addition, the company generates electricity through wind mills and solar power plants. Further, it engages in the rental…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "ticker": "CUBEXTUB.NS",
+  "company": "CUBEXTUB.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:02:01.583708+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: CUBEXTUB ===\nAbout: \nQuarterly Results (last 4Q — ):\n  Sales +: \n  Net Profit +: \n  EPS in Rs: \nAnnual P&L ():\n  Sales +: \n  OPM %: \n  Net Profit +: \n  EPS in Rs: \nBalance Sheet (last 3 years):\n  Reserves: \n  Borrowings +: \n  Total Assets: \nShareholding Pattern (latest):\n  Promoters +: 44.42%\n  FIIs +: 0.00% (prev: 0.19%)\n  DIIs +: 0.32%\n  Government +: 0.04%",
+  "yfinance": "=== yfinance Fundamentals: CUBEXTUB.NS ===\nProfile: Sector=Basic Materials | Industry=Copper | Exchange=NSI | 52W=[Rs73–Rs152] | AvgVol=99,328\nAnalyst: Consensus=None\nValuation: P/E (TTM)=28.89x | P/B=2.62x | EV/EBITDA=31.33x | EV/Revenue=0.78x\nEarnings: EPS (TTM)=Rs5.27 | EPS Growth=7.00% | Rev Growth=30.30%\nProfitability: Gross Margin=2.87% | Op Margin=1.67% | Net Margin=2.49%\nBalance Sheet: D/E=0.52x\nMarket: Mkt Cap=Rs218 Cr | Ent Value=Rs238 Cr | Beta=0.92x\nBusiness: Cubex Tubings Limited manufactures and fabricates copper and copper based alloy products in India and internationally. It offers copper products, such as DLP, DHP, ETP, and medical gas copper tubes; copper round and bus bars; and copper wires and profiles. The company also provides copper alloy products, including admiralty brass and aluminum brass…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

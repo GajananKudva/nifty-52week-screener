@@ -1,0 +1,21 @@
+{
+  "ticker": "ICEMAKE.NS",
+  "company": "ICEMAKE.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:03:09.222989+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: ICEMAKE ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 147.49 | 153.36 | 255.85 | 178.88\n  Net Profit +: 2.03 | 1.45 | 10.12 | -1.66\n  EPS in Rs: 1.29 | 0.93 | 6.41 | -1.04\nAnnual P&L (Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 312 | 378 | 480 | 668 | 736\n  OPM %: 10% | 11% | 9% | 7% | 6%\n  Net Profit +: 21 | 26 | 23 | 12 | 12\n  EPS in Rs: 13.18 | 16.64 | 14.65 | 7.73 | 7.59\nBalance Sheet (last 3 years):\n  Reserves: 88 | 108 | 117\n  Borrowings +: 27 | 86 | 158\n  Total Assets: 211 | 368 | 504\nShareholding Pattern (latest):\n  Promoters +: 64.52% (prev: 74.20%)\n  FIIs +: 0.01% (prev: 0.31%)\n  DIIs +: 0.88% (prev: 1.38%)\n  Public +: 34.60% (prev: 24.11%)",
+  "yfinance": "=== yfinance Fundamentals: ICEMAKE.NS ===\nProfile: Sector=Industrials | Industry=Specialty Industrial Machinery | Exchange=NSI | 52W=[Rs648–Rs920] | AvgVol=33,561\nAnalyst: Consensus=None\nValuation: P/E (TTM)=89.95x | P/B=7.87x | EV/EBITDA=25.17x | EV/Revenue=1.65x\nEarnings: EPS (TTM)=Rs7.38 | Rev Growth=60.40%\nProfitability: Gross Margin=27.65% | Op Margin=0.52% | Net Margin=1.63%\nBalance Sheet: D/E=1.19x\nMarket: Mkt Cap=Rs1,047 Cr | Ent Value=Rs1,216 Cr | Beta=-0.21x | Div Yield=33.00%\nBusiness: Ice Make Refrigeration Limited, together with its subsidiaries, manufactures and supplies refrigeration products and equipment under the Ice Make, Bharat, and TransFreez brands in India. The company offers cold storage products, including modular, combi, walk-in, custom-built, and solar cold rooms, as well as blast freezers and chillers, glass door…",
+  "announcements": "",
+  "news_yf": "[2026-08-20] Ice Make Refrigeration Ltd (NSE:ICEMAKE) (Q1 2027) Earnings Call Highlights: Revenue Surges 60% ...\n[2026-06-06] Ice Make Refrigeration Ltd (NSE:ICEMAKE) Q4 2026 Earnings Call Highlights: Robust Revenue ...\n[2026-02-20] Ice Make Refrigeration Ltd (NSE:ICEMAKE) Q3 2026 Earnings Call Highlights: Robust Revenue ...\n[2025-11-19] Ice Make Refrigeration Ltd (NSE:ICEMAKE) Q2 2026 Earnings Call Highlights: Robust Revenue ...",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

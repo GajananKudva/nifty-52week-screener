@@ -1,0 +1,21 @@
+{
+  "ticker": "PARIN.NS",
+  "company": "PARIN.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:02:29.289425+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: PARIN ===\nAbout: \nQuarterly Results (last 4Q — Sep 2024 / Mar 2025 / Sep 2025 / Mar 2026):\n  Sales +: 37 | 131 | 109 | 139\n  Net Profit +: 1 | 6 | 3 | 4\n  EPS in Rs: 0.99 | 4.67 | 2.25 | 3.42\nAnnual P&L (Mar 2022 / Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026):\n  Sales +: 77 | 81 | 82 | 168 | 248\n  OPM %: 13% | 11% | 11% | 11% | 9%\n  Net Profit +: 4 | 3 | 2 | 7 | 7\n  EPS in Rs: 3.71 | 2.77 | 2.04 | 5.66 | 5.66\nBalance Sheet (last 3 years):\n  Reserves: 47 | 53 | 64\n  Borrowings +: 45 | 95 | 91\n  Total Assets: 125 | 187 | 195\nShareholding Pattern (latest):\n  Promoters +: 72.76% (prev: 73.02%)\n  FIIs +: 0.26% (prev: 0.40%)\n  Public +: 26.97% (prev: 26.59%)\n  No. of Shareholders: 599 (prev: 414)",
+  "yfinance": "=== yfinance Fundamentals: PARIN.NS ===\nProfile: Sector=Consumer Cyclical | Industry=Furnishings, Fixtures & Appliances | Exchange=NSI | 52W=[Rs499–Rs789] | AvgVol=6,713\nAnalyst: Consensus=None\nValuation: P/E (TTM)=130.34x | P/B=10.79x | EV/EBITDA=41.17x | EV/Revenue=3.57x\nEarnings: EPS (TTM)=Rs5.61 | EPS Growth=-28.00% | Rev Growth=5.60%\nProfitability: Gross Margin=21.28% | Op Margin=6.48% | Net Margin=2.54% | ROE=10.35% | ROA=5.44%\nBalance Sheet: D/E=1.18x | Current Ratio=1.76x | Quick Ratio=0.58x | Free CF=Rs-10 Cr | Op CF=Rs3 Cr\nMarket: Mkt Cap=Rs813 Cr | Ent Value=Rs884 Cr | Beta=0.55x | Div Yield=7.00%\nBusiness: Parin Enterprises Limited engages in the manufacture, supply, and trade of furniture and lifestyle products in India. It offers health care furniture, such as accessories, general ward care and gynaec solutions, over bed/cardiac table, patient examination solution, saline stand, smart patient transfer solutions, stools, wheelchairs, ICU full and se…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

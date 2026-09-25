@@ -1,0 +1,21 @@
+{
+  "ticker": "NILASPACES.NS",
+  "company": "NILASPACES.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:03:29.752448+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: NILASPACES ===\nAbout: \nQuarterly Results (last 4Q — Sep 2025 / Dec 2025 / Mar 2026 / Jun 2026):\n  Sales +: 42.18 | 52.20 | 49.80 | 46.67\n  Net Profit +: 5.34 | 8.18 | 9.40 | 8.60\n  EPS in Rs: 0.14 | 0.20 | 0.23 | 0.22\nAnnual P&L (Mar 2023 / Mar 2024 / Mar 2025 / Mar 2026 / TTM):\n  Sales +: 1 | 91 | 136 | 185 | 191\n  OPM %: -815% | 12% | 24% | 31% | 33%\n  Net Profit +: -4 | 13 | 15 | 29 | 32\n  EPS in Rs: -0.10 | 0.34 | 0.37 | 0.72 | 0.79\nBalance Sheet (last 3 years):\n  Reserves: 88 | 103 | 131\n  Borrowings +: 1 | 22 | 79\n  Total Assets: 230 | 311 | 364\nShareholding Pattern (latest):\n  Promoters +: 61.90%\n  FIIs +: 0.00% (prev: 0.05%)\n  Public +: 38.08% (prev: 38.05%)\n  No. of Shareholders: 83,496 (prev: 83,424)",
+  "yfinance": "=== yfinance Fundamentals: NILASPACES.NS ===\nProfile: Sector=Real Estate | Industry=Real Estate - Development | Exchange=NSI | 52W=[Rs11–Rs20] | AvgVol=953,567\nAnalyst: Consensus=None\nValuation: P/E (TTM)=14.18x | P/B=2.48x | EV/EBITDA=8.31x | EV/Revenue=2.76x\nEarnings: EPS (TTM)=Rs0.78 | EPS Growth=40.00% | Rev Growth=14.30%\nProfitability: Gross Margin=44.73% | Op Margin=35.52% | Net Margin=16.32%\nBalance Sheet: D/E=0.46x\nMarket: Mkt Cap=Rs436 Cr | Ent Value=Rs527 Cr | Beta=0.95x\nBusiness: Nila Spaces Limited engages in the real estate development activities. It is involved in the construction and development of residential buildings. The company was formerly known as Parmananday Superstructure Limited and changed its name to Nila Spaces Limited in November 2017. The company was incorporated in 2000 and is headquartered in Ahmedabad,…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}

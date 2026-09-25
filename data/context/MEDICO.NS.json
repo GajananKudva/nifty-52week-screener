@@ -1,0 +1,21 @@
+{
+  "ticker": "MEDICO.NS",
+  "company": "MEDICO.NS",
+  "date": "2026-09-25",
+  "generated_at_utc": "2026-09-25T10:03:28.291632+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "=== Screener.in: MEDICO ===\nAbout: \nQuarterly Results (last 4Q — ):\n  Sales +: \n  Net Profit +: \n  EPS in Rs: \nAnnual P&L ():\n  Sales +: \n  OPM %: \n  Net Profit +: \n  EPS in Rs: \nBalance Sheet (last 3 years):\n  Reserves: \n  Borrowings +: \n  Total Assets: \nShareholding Pattern (latest):\n  Promoters +: 61.38%\n  FIIs +: 0.08% (prev: 0.03%)\n  DIIs +: 0.00%\n  Public +: 38.55% (prev: 38.60%)",
+  "yfinance": "=== yfinance Fundamentals: MEDICO.NS ===\nProfile: Sector=Healthcare | Industry=Drug Manufacturers - Specialty & Generic | Exchange=NSI | 52W=[Rs26–Rs57] | AvgVol=355,040\nAnalyst: Consensus=None\nValuation: P/E (TTM)=15.76x | P/B=2.84x | EV/EBITDA=16.30x | EV/Revenue=1.21x\nEarnings: EPS (TTM)=Rs1.65 | EPS Growth=36.40% | Rev Growth=81.40%\nProfitability: Gross Margin=24.33% | Op Margin=3.71% | Net Margin=5.82%\nBalance Sheet: D/E=0.25x\nMarket: Mkt Cap=Rs216 Cr | Ent Value=Rs288 Cr | Beta=0.62x\nBusiness: Medico Remedies Limited develops, manufactures, and sells pharmaceutical and nutraceutical products in India. The company offers antibiotics and anti-infectives; beta-lactams-penicillins and cephalosporins; antifungals; vitamins and supplements; cardiovascular products; antipyretic, analgesic, and NSAIDs medicines; antacid and anti-ulcer drugs; ant…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 25 September 2026\n============================================================\n\nCBOE VIX [2026-09-22]\n  Current: 14.21  (-4.44% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 25 September 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.95.81  (-0.14% — rupee stronger vs USD)\n  India impact      : Stronger rupee reduces import costs, supports FII inflows\n  Nifty 50          : 23,140.50  (+0.34% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Sep 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}
