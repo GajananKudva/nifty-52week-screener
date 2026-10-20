@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-10-20T15:19:25.791403+00:00",
-  "generated_at_ist": "20 Oct 2026 · 20:49 IST",
-  "duration_seconds": 270.6,
+  "generated_at_utc": "2026-10-20T19:31:17.120181+00:00",
+  "generated_at_ist": "21 Oct 2026 · 01:01 IST",
+  "duration_seconds": 266.9,
   "universe_size": 2619,
   "params": {
     "high_low_window": 252,
@@ -10,7 +10,7 @@
     "volume_surge_threshold": 0.0
   },
   "counts": {
-    "highs": 41,
+    "highs": 40,
     "lows": 102,
     "errors": 0
   },
@@ -1126,36 +1126,6 @@
       "signal": "BREAKOUT_HIGH"
     },
     {
-      "ticker": "TIKONA.NS",
-      "company_name": "Tikona Communication Limited",
-      "sector": "Basic Materials",
-      "industry": "Steel",
-      "current_price": 47.32,
-      "week_52_high": 47.55,
-      "week_52_low": 10.21,
-      "pct_from_high": 0.0,
-      "pct_from_low": 363.47,
-      "volume_surge": 0.22,
-      "vol_confirmed": true,
-      "avg_vol_20d": 62400,
-      "current_vol": 13881,
-      "pe_ratio": 59.9,
-      "forward_pe": NaN,
-      "beta": -0.24,
-      "intrinsic_value": NaN,
-      "upside_downside_pct": NaN,
-      "dcf_stage1_growth": NaN,
-      "ret_1m": 95.3,
-      "ret_3m": 231.14,
-      "ret_6m": 282.85,
-      "ret_1y": 363.47,
-      "market_cap": 1439947648.0,
-      "days_since_prior_high": 3.0,
-      "high_type": "CONTINUATION",
-      "news_headlines": [],
-      "signal": "BREAKOUT_HIGH"
-    },
-    {
       "ticker": "SUPREMEENG.NS",
       "company_name": "Supreme Engineering Limited",
       "sector": "Basic Materials",
@@ -1802,7 +1772,7 @@
       "avg_vol_20d": 216591,
       "current_vol": 2107356,
       "pe_ratio": 74.52,
-      "forward_pe": 17.52,
+      "forward_pe": 20.02,
       "beta": 0.3,
       "intrinsic_value": NaN,
       "upside_downside_pct": NaN,
