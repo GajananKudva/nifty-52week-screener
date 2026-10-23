@@ -1,0 +1,21 @@
+{
+  "ticker": "TATACHEM.NS",
+  "company": "TATACHEM.NS",
+  "date": "2026-10-23",
+  "generated_at_utc": "2026-10-23T10:02:12.577217+00:00",
+  "fmp": "============================================================\nVERIFIED FUNDAMENTAL DATA  (Source: Financial Modeling Prep)\n============================================================\n\n============================================================",
+  "screener": "",
+  "yfinance": "=== yfinance Fundamentals: TATACHEM.NS ===\nProfile: Sector=Basic Materials | Industry=Chemicals | Exchange=NSI | 52W=[Rs570–Rs919] | AvgVol=1,857,575\nAnalyst: Target(mean)=Rs712 | Target(high)=Rs880 | Target(low)=Rs529 | Consensus=Hold | Analysts=9\nValuation: P/E (Fwd)=19.40x | P/B=0.69x | EV/EBITDA=15.05x | EV/Revenue=1.52x\nEarnings: EPS (TTM)=Rs-84.98 | EPS (Fwd)=Rs29.73 | Rev Growth=14.40%\nProfitability: Gross Margin=62.02% | Op Margin=5.15% | Net Margin=-14.32%\nBalance Sheet: D/E=0.36x\nMarket: Mkt Cap=Rs14,694 Cr | Ent Value=Rs22,969 Cr | Beta=0.61x | Div Yield=185.00%\nBusiness: Tata Chemicals Limited, together with its subsidiaries, manufactures, markets, sells, and distributes basic chemistry and specialty products in India, Asia, Africa, Europe, the United Kingdom, the Americas, and internationally. It operates through two segments, Basic Chemistry Products and Specialty Products. The company offers dense, heavy, high p…",
+  "announcements": "",
+  "news_yf": "",
+  "news_web": "",
+  "earnings": "",
+  "analyst": "",
+  "profile": "",
+  "macro": {
+    "fred": "============================================================\nGLOBAL MACRO INDICATORS  (Source: FRED — Federal Reserve)\nAs of 23 October 2026\n============================================================\n\nBrent Crude Oil [2026-10-20]\n  Current: 115.22 USD/bbl  (-3.03% vs prior)\n  India impact: Higher crude → India CAD widens, rupee weakens, oil companies pressured; lower crude → opposite\n\nUS Dollar Index (DXY) [2026-10-16]\n  Current: 121.40  (-0.14% vs prior)\n  India impact: Stronger DXY → FII outflows from India, rupee weakens; weaker DXY → FII inflows rise\n\nFed Funds Rate [2026-10-21]\n  Current: 3.88 %  (+0.00% vs prior)\n  India impact: Higher Fed rate → capital flows to USD, EM selling pressure; cuts → EM relief rally\n\nCBOE VIX [2026-10-21]\n  Current: 16.68  (-3.64% vs prior)\n  India impact: High VIX → risk-off, FII sell EMs including India; low VIX → risk-on, inflows\n\nUS 10Y Treasury Yield [2026-09-01]\n  Current: 4.99 %\n  India impact: Rising US 10Y → India bonds less attractive, FII debt outflows; falling → inflows\n\nYield Curve (10Y-2Y) [2026-10-22]\n  Current: 0.31 %  (-3.13% vs prior)\n  India impact: Negative spread = inverted curve = US recession risk → global risk-off, India hit\n\n============================================================",
+    "india": "============================================================\nINDIA MACRO DATA  (Sources: NSE, RBI, yfinance)\nAs of 23 October 2026\n============================================================\n\n[MARKET RATES]\n  USD/INR           : Rs.94.92  (+0.12% — rupee weaker vs USD)\n  India impact      : Weaker rupee raises import costs, pressures CAD, may deter FII inflows\n  Nifty 50          : 22,516.40  (-0.75% today)\n\n[RBI MONETARY POLICY]\n  Repo Rate         : 6.25% (last known)\n  SDF (floor)       : 6.00%\n  MSF / Bank Rate   : 6.50%\n  CRR               : 4.00%\n  Stance            : Neutral\n  Last updated      : fallback as of Oct 2026\n  India impact      : Repo at 6.25% — accommodative relative to historic norms; supports credit growth\n\n[FII / DII DAILY FLOWS — Cash Market]\n  Data unavailable — NSE session could not be established\n  (Check NSE website directly for FII/DII flows)\n\n============================================================",
+    "world_bank": "World Bank (latest annual):\n  Real GDP growth %: India 7.6% (2025) · US 2.2% (2025) · World 2.9% (2025)\n  Inflation (CPI) %: India 2.4% (2025) · US 2.9% (2024) · World 3.0% (2025)",
+    "finnhub": ""
+  }
+}
