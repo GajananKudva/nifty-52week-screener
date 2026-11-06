@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-11-05T21:51:43.659945+00:00",
-  "generated_at_ist": "06 Nov 2026 · 03:21 IST",
-  "duration_seconds": 95.0,
+  "generated_at_utc": "2026-11-06T01:59:39.770196+00:00",
+  "generated_at_ist": "06 Nov 2026 · 07:29 IST",
+  "duration_seconds": 149.1,
   "universe_size": 2630,
   "params": {
     "high_low_window": 252,
@@ -46,6 +46,7 @@
         "India Infrastructure Stocks Riding The Supply Chain Shift",
         "3 India Logistics Stocks Riding The Shift From Road To Rail",
         "Adani Ports Stock And Gulf Port Shares In Focus As Cargo Routes Shift",
+        "India's Adani Ports posts higher profit on domestic demand",
         "Gautam Adani’s Net Worth Swells By $2 Billion—Becomes Asia’s Richest Person"
       ],
       "signal": "BREAKOUT_HIGH"
@@ -83,39 +84,6 @@
         "3 Indian Export Stocks That Could Benefit From A Weaker Rupee",
         "Divi's Laboratories Ltd (BOM:532488) (Q1 FY27) Earnings Call Highlights: Record Profit Surge ...",
         "Indian contract drug maker Divi's misses profit view on high material costs, one-off labour charge"
-      ],
-      "signal": "BREAKOUT_HIGH"
-    },
-    {
-      "ticker": "BOSCHLTD.NS",
-      "company_name": "Bosch Limited",
-      "sector": "Consumer Cyclical",
-      "industry": "Auto Parts",
-      "current_price": 50925.0,
-      "week_52_high": 51250.0,
-      "week_52_low": 28422.96,
-      "pct_from_high": 0.0,
-      "pct_from_low": 74.77,
-      "volume_surge": 2.05,
-      "vol_confirmed": true,
-      "avg_vol_20d": 22831,
-      "current_vol": 46770,
-      "pe_ratio": 65.49,
-      "forward_pe": 46.2,
-      "beta": 0.69,
-      "intrinsic_value": NaN,
-      "upside_downside_pct": NaN,
-      "dcf_stage1_growth": NaN,
-      "ret_1m": 13.27,
-      "ret_3m": 23.6,
-      "ret_6m": 42.91,
-      "ret_1y": 33.0,
-      "market_cap": 1547807883264.0,
-      "days_since_prior_high": 1.0,
-      "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Bosch Ltd (BOM:500530) Q3 2026 Earnings Call Highlights: Strong Revenue Growth Amidst Market ...",
-        "Bosch Ltd (BOM:500530) Q2 2026 Earnings Call Highlights: Strong Revenue Growth and Strategic ..."
       ],
       "signal": "BREAKOUT_HIGH"
     },
@@ -169,7 +137,7 @@
       "avg_vol_20d": 8171119,
       "current_vol": 17102057,
       "pe_ratio": 9.69,
-      "forward_pe": 10.11,
+      "forward_pe": 10.48,
       "beta": 0.5,
       "intrinsic_value": 160.37,
       "upside_downside_pct": -13.88,
@@ -182,6 +150,7 @@
       "days_since_prior_high": 1.0,
       "high_type": "CONTINUATION",
       "news_headlines": [
+        "India's downstream gas regulator approves LPG pipeline infrastructure worth $731 million",
         "GAIL (India) Ltd (GAILF) (Q1 FY2027) Earnings Call Highlights: Record Profit Surge on LPG ...",
         "GAIL (India) Ltd (GAILF) Q4 2026 Earnings Call Highlights: Navigating Challenges with Strategic ..."
       ],
@@ -354,8 +323,8 @@
         "Did Gland Pharma's 77% Run Pass You By? What Bulls Still Need",
         "3 Indian Export Stocks Retail Investors Are Watching For Dollar Earnings",
         "Gland Pharma Ltd (NSE:GLAND) (Q1 2027) Earnings Call Highlights: Record 20% Revenue Growth and ...",
-        "India's Gland Pharma beats quarterly profit view on strong Europe, US sales",
-        "Gland Pharma Ltd (NSE:GLAND) Q4 2026 Earnings Call Highlights: Robust Revenue Growth and ..."
+        "Gland Pharma Ltd (NSE:GLAND) Q4 2026 Earnings Call Highlights: Robust Revenue Growth and ...",
+        "Gland Pharma Ltd (NSE:GLAND) Q3 2026 Earnings Call Highlights: Strong Revenue Growth and ..."
       ],
       "signal": "BREAKOUT_HIGH"
     },
@@ -374,7 +343,7 @@
       "avg_vol_20d": 147152,
       "current_vol": 1190484,
       "pe_ratio": 38.96,
-      "forward_pe": 27.93,
+      "forward_pe": 27.15,
       "beta": -0.0,
       "intrinsic_value": 85.45,
       "upside_downside_pct": -96.04,
@@ -628,6 +597,7 @@
       "high_type": "CONTINUATION",
       "news_headlines": [
         "PVR INOX Ltd (BOM:532689) Q1 2027 Earnings Call Highlights: Strong Revenue Growth and Strategic ...",
+        "India's PVR INOX posts first-quarter profit as moviegoers buy more tickets, spend more on food",
         "PVR INOX Ltd (BOM:532689) Q3 2026 Earnings Call Highlights: Strong Box Office Performance and ..."
       ],
       "signal": "BREAKOUT_HIGH"
@@ -1350,6 +1320,39 @@
       "high_type": "CONTINUATION",
       "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
+    },
+    {
+      "ticker": "BOSCHLTD.NS",
+      "company_name": "Bosch Limited",
+      "sector": "Consumer Cyclical",
+      "industry": "Auto Parts",
+      "current_price": 50925.0,
+      "week_52_high": 51250.0,
+      "week_52_low": 28422.96,
+      "pct_from_high": 0.0,
+      "pct_from_low": 74.77,
+      "volume_surge": 2.05,
+      "vol_confirmed": true,
+      "avg_vol_20d": 22831,
+      "current_vol": 46770,
+      "pe_ratio": 65.49,
+      "forward_pe": 46.2,
+      "beta": 0.69,
+      "intrinsic_value": NaN,
+      "upside_downside_pct": NaN,
+      "dcf_stage1_growth": NaN,
+      "ret_1m": 13.27,
+      "ret_3m": 23.6,
+      "ret_6m": 42.91,
+      "ret_1y": 33.0,
+      "market_cap": NaN,
+      "days_since_prior_high": 1.0,
+      "high_type": "CONTINUATION",
+      "news_headlines": [
+        "Bosch Ltd (BOM:500530) Q3 2026 Earnings Call Highlights: Strong Revenue Growth Amidst Market ...",
+        "Bosch Ltd (BOM:500530) Q2 2026 Earnings Call Highlights: Strong Revenue Growth and Strategic ..."
+      ],
+      "signal": "BREAKOUT_HIGH"
     }
   ],
   "lows": [
@@ -1572,8 +1575,8 @@
       "news_headlines": [
         "What Zee Holders Got Wrong Before The Slide",
         "Zee Entertainment Enterprises Ltd (BOM:505537) (Q1 2027) Earnings Call Highlights: ZEE5 Surges ...",
-        "India's Zee Entertainment posts quarterly profit drop on weak ad sales, rising costs",
         "Zee Entertainment Wins Interim Relief to Proceed With $330 Million Capital Raise Despite Indian Regulator’s Market Ban",
+        "India's SEBI imposes 14.8 million rupees penalty on Zee Entertainment",
         "Zee Entertainment Enterprises Ltd (BOM:505537) Q4 2026 Earnings Call Highlights: Digital Surge ..."
       ],
       "signal": "BREAKDOWN_LOW"
@@ -2493,7 +2496,7 @@
       "avg_vol_20d": 178597,
       "current_vol": 2826705,
       "pe_ratio": 37.79,
-      "forward_pe": 17.36,
+      "forward_pe": NaN,
       "beta": 0.45,
       "intrinsic_value": NaN,
       "upside_downside_pct": NaN,
