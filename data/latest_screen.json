@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-11-12T19:27:38.390427+00:00",
-  "generated_at_ist": "13 Nov 2026 · 00:57 IST",
-  "duration_seconds": 163.1,
+  "generated_at_utc": "2026-11-13T00:39:06.655216+00:00",
+  "generated_at_ist": "13 Nov 2026 · 06:09 IST",
+  "duration_seconds": 135.5,
   "universe_size": 2635,
   "params": {
     "high_low_window": 252,
@@ -83,7 +83,7 @@
         "CCI approves Kotak’s purchase of Deutsche Bank’s India retail operations",
         "Indian bank stocks rise as RBI rate-hike bets build, Nifty Private Bank up 1%",
         "ICICI Prudential AMC gets clearance to buy up to 9.95% of four lenders",
-        "Four Indian private lenders eye dollar debt before RBI swap window deadline, bankers say"
+        "Ravi Malani to head portfolio management services at Sanctum Wealth"
       ],
       "signal": "BREAKOUT_HIGH"
     },
@@ -118,7 +118,6 @@
         "India Infrastructure Stocks Riding The Supply Chain Shift",
         "3 India Logistics Stocks Riding The Shift From Road To Rail",
         "Adani Ports Stock And Gulf Port Shares In Focus As Cargo Routes Shift",
-        "India's Adani Ports posts higher profit on domestic demand",
         "Gautam Adani’s Net Worth Swells By $2 Billion—Becomes Asia’s Richest Person"
       ],
       "signal": "BREAKOUT_HIGH"
@@ -160,6 +159,40 @@
       "signal": "BREAKOUT_HIGH"
     },
     {
+      "ticker": "TVSMOTOR.NS",
+      "company_name": "TVS Motor Company Limited",
+      "sector": "Consumer Cyclical",
+      "industry": "Auto Manufacturers",
+      "current_price": 4560.0,
+      "week_52_high": 4636.1,
+      "week_52_low": 3228.0,
+      "pct_from_high": 0.0,
+      "pct_from_low": 39.44,
+      "volume_surge": 1.94,
+      "vol_confirmed": true,
+      "avg_vol_20d": 711150,
+      "current_vol": 1377482,
+      "pe_ratio": 55.87,
+      "forward_pe": 31.41,
+      "beta": -0.03,
+      "intrinsic_value": NaN,
+      "upside_downside_pct": NaN,
+      "dcf_stage1_growth": NaN,
+      "ret_1m": 17.93,
+      "ret_3m": 2.1,
+      "ret_6m": 26.19,
+      "ret_1y": 30.35,
+      "market_cap": 2138518061056.0,
+      "days_since_prior_high": 2.0,
+      "high_type": "CONTINUATION",
+      "news_headlines": [
+        "India's TVS Motor names Peyman Kargar as CEO from 2027",
+        "This $1,000 'Doctor Doom' Bike Is Helping TVS Plot Motorcycle World Domination",
+        "Indian EV startup River raises $120M Series C to scale production, launch more models"
+      ],
+      "signal": "BREAKOUT_HIGH"
+    },
+    {
       "ticker": "PNB.NS",
       "company_name": "Punjab National Bank",
       "sector": "Financial Services",
@@ -187,6 +220,7 @@
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
       "news_headlines": [
+        "India's PNB eyes faster credit growth in fiscal 2028 after pruning low-yield loans, CEO says",
         "Punjab National Bank (BOM:532461) Q1 2027 Earnings Call Highlights: Strong Growth Amidst ...",
         "India's PNB hikes cybersecurity spend as AI models including Anthropic’s Mythos raise risks",
         "Punjab National Bank (BOM:532461) Q3 2026 Earnings Call Highlights: Strong Growth Amidst Margin ..."
@@ -326,7 +360,6 @@
       "days_since_prior_high": 6.0,
       "high_type": "CONTINUATION",
       "news_headlines": [
-        "India's downstream gas regulator approves LPG pipeline infrastructure worth $731 million",
         "GAIL (India) Ltd (GAILF) (Q1 FY2027) Earnings Call Highlights: Record Profit Surge on LPG ...",
         "GAIL (India) Ltd (GAILF) Q4 2026 Earnings Call Highlights: Navigating Challenges with Strategic ..."
       ],
@@ -399,6 +432,40 @@
       "signal": "BREAKOUT_HIGH"
     },
     {
+      "ticker": "MCX.NS",
+      "company_name": "Multi Commodity Exchange of India Limited",
+      "sector": "Financial Services",
+      "industry": "Financial Data & Stock Exchanges",
+      "current_price": 3617.6,
+      "week_52_high": 3637.0,
+      "week_52_low": 1757.79,
+      "pct_from_high": 0.0,
+      "pct_from_low": 101.2,
+      "volume_surge": 1.21,
+      "vol_confirmed": true,
+      "avg_vol_20d": 2160271,
+      "current_vol": 2620029,
+      "pe_ratio": 62.54,
+      "forward_pe": 42.78,
+      "beta": 0.7,
+      "intrinsic_value": 1492.3,
+      "upside_downside_pct": -58.75,
+      "dcf_stage1_growth": 8.0,
+      "ret_1m": 9.02,
+      "ret_3m": 31.43,
+      "ret_6m": 13.76,
+      "ret_1y": 90.34,
+      "market_cap": 922537230336.0,
+      "days_since_prior_high": 2.0,
+      "high_type": "CONTINUATION",
+      "news_headlines": [
+        "Multi Commodity Exchange of India Ltd (BOM:534091) (Q2 2027) Earnings Call Highlights: Profit ...",
+        "Safer Crypto Access Through HUB24 Stock And Other Regulated Platforms",
+        "Multi Commodity Exchange of India Ltd (BOM:534091) (Q1 2027) Earnings Call Highlights: Record ..."
+      ],
+      "signal": "BREAKOUT_HIGH"
+    },
+    {
       "ticker": "PHOENIXLTD.NS",
       "company_name": "The Phoenix Mills Limited",
       "sector": "Real Estate",
@@ -456,7 +523,7 @@
       "ret_3m": 6.6,
       "ret_6m": 17.22,
       "ret_1y": 8.82,
-      "market_cap": 800369541120.0,
+      "market_cap": 800355188736.0,
       "days_since_prior_high": 2.0,
       "high_type": "CONTINUATION",
       "news_headlines": [
@@ -918,7 +985,7 @@
       "avg_vol_20d": 4786178,
       "current_vol": 12365500,
       "pe_ratio": 19.27,
-      "forward_pe": 21.73,
+      "forward_pe": 21.66,
       "beta": 1.02,
       "intrinsic_value": 235.63,
       "upside_downside_pct": -24.28,
@@ -1154,7 +1221,7 @@
       "avg_vol_20d": 219189,
       "current_vol": 180146,
       "pe_ratio": 191.31,
-      "forward_pe": 58.28,
+      "forward_pe": 53.91,
       "beta": 0.82,
       "intrinsic_value": NaN,
       "upside_downside_pct": NaN,
@@ -1226,7 +1293,7 @@
       "avg_vol_20d": 2885220,
       "current_vol": 4808322,
       "pe_ratio": 52.97,
-      "forward_pe": 21.75,
+      "forward_pe": 21.39,
       "beta": 0.45,
       "intrinsic_value": 25.11,
       "upside_downside_pct": -87.96,
@@ -1495,8 +1562,7 @@
       "high_type": "CONTINUATION",
       "news_headlines": [
         "Manaksia Coated Metals & Industries Ltd (BOM:539046) (Q2 2027) Earnings Call Highlights: ...",
-        "Manaksia Coated Metals & Industries Ltd (BOM:539046) Q1 2027 Earnings Call Highlights: ...",
-        "Manaksia Coated Metals & Industries Ltd (BOM:539046) Q3 2026 Earnings Call Highlights: ..."
+        "Manaksia Coated Metals & Industries Ltd (BOM:539046) Q1 2027 Earnings Call Highlights: ..."
       ],
       "signal": "BREAKOUT_HIGH"
     },
@@ -1840,74 +1906,6 @@
       "high_type": "CONTINUATION",
       "news_headlines": [],
       "signal": "BREAKOUT_HIGH"
-    },
-    {
-      "ticker": "MCX.NS",
-      "company_name": "Multi Commodity Exchange of India Limited",
-      "sector": "Financial Services",
-      "industry": "Financial Data & Stock Exchanges",
-      "current_price": 3617.6,
-      "week_52_high": 3637.0,
-      "week_52_low": 1757.79,
-      "pct_from_high": 0.0,
-      "pct_from_low": 101.2,
-      "volume_surge": 1.21,
-      "vol_confirmed": true,
-      "avg_vol_20d": 2160271,
-      "current_vol": 2620029,
-      "pe_ratio": 62.54,
-      "forward_pe": 42.78,
-      "beta": 0.7,
-      "intrinsic_value": NaN,
-      "upside_downside_pct": NaN,
-      "dcf_stage1_growth": NaN,
-      "ret_1m": 9.02,
-      "ret_3m": 31.43,
-      "ret_6m": 13.76,
-      "ret_1y": 90.34,
-      "market_cap": NaN,
-      "days_since_prior_high": 2.0,
-      "high_type": "CONTINUATION",
-      "news_headlines": [
-        "Multi Commodity Exchange of India Ltd (BOM:534091) (Q2 2027) Earnings Call Highlights: Profit ...",
-        "Safer Crypto Access Through HUB24 Stock And Other Regulated Platforms",
-        "Multi Commodity Exchange of India Ltd (BOM:534091) (Q1 2027) Earnings Call Highlights: Record ..."
-      ],
-      "signal": "BREAKOUT_HIGH"
-    },
-    {
-      "ticker": "TVSMOTOR.NS",
-      "company_name": "TVS Motor Company Limited",
-      "sector": "Consumer Cyclical",
-      "industry": "Auto Manufacturers",
-      "current_price": 4560.0,
-      "week_52_high": 4636.1,
-      "week_52_low": 3228.0,
-      "pct_from_high": 0.0,
-      "pct_from_low": 39.44,
-      "volume_surge": 1.94,
-      "vol_confirmed": true,
-      "avg_vol_20d": 711150,
-      "current_vol": 1377482,
-      "pe_ratio": 55.87,
-      "forward_pe": 31.41,
-      "beta": -0.03,
-      "intrinsic_value": NaN,
-      "upside_downside_pct": NaN,
-      "dcf_stage1_growth": NaN,
-      "ret_1m": 17.93,
-      "ret_3m": 2.1,
-      "ret_6m": 26.19,
-      "ret_1y": 30.35,
-      "market_cap": NaN,
-      "days_since_prior_high": 2.0,
-      "high_type": "CONTINUATION",
-      "news_headlines": [
-        "India's TVS Motor names Peyman Kargar as CEO from 2027",
-        "This $1,000 'Doctor Doom' Bike Is Helping TVS Plot Motorcycle World Domination",
-        "Indian EV startup River raises $120M Series C to scale production, launch more models"
-      ],
-      "signal": "BREAKOUT_HIGH"
     }
   ],
   "lows": [
@@ -1942,6 +1940,7 @@
         "TeamLease Services Ltd (BOM:539658) (Q2 2027) Earnings Call Highlights: Margin Gains Offset ...",
         "3 Indian Value Stocks Trading Up To 49% Below Fair Value",
         "TeamLease Services Ltd (BOM:539658) (Q1 2027) Earnings Call Highlights: Profit Surges 38% Amid ...",
+        "India's TeamLease posts 31% quarterly profit rise on GCC hiring",
         "TeamLease Services Ltd (BOM:539658) Q4 2026 Earnings Call Highlights: Strong Operating ..."
       ],
       "signal": "BREAKDOWN_LOW"
