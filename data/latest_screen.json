@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-11-13T21:48:16.167910+00:00",
-  "generated_at_ist": "14 Nov 2026 · 03:18 IST",
-  "duration_seconds": 167.1,
+  "generated_at_utc": "2026-11-14T01:58:35.814464+00:00",
+  "generated_at_ist": "14 Nov 2026 · 07:28 IST",
+  "duration_seconds": 160.4,
   "universe_size": 2635,
   "params": {
     "high_low_window": 252,
@@ -366,7 +366,7 @@
       "industry": "Chemicals",
       "current_price": 9969.0,
       "week_52_high": 10036.0,
-      "week_52_low": 5428.52,
+      "week_52_low": 5428.51,
       "pct_from_high": 0.0,
       "pct_from_low": 78.92,
       "volume_surge": 2.12,
